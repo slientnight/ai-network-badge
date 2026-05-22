@@ -119,6 +119,28 @@ Replace `COM3` with the actual port on your system (e.g. `/dev/ttyUSB0` on Linux
 - If you don't have the serial cable handy, hold the BOOT button on the badge and visit `http://192.168.4.1/admin/key` from your phone — it returns the active key in plain text only while the button is held.
 - Press the BOOT button on the board to cycle idle patterns.
 
+## Resetting a Badge
+
+The badge keeps everything in NVS namespace `badge`: brightness, idle pattern, mesh score, peer count, stored contacts, and the custom admin key (if set). Three levels of reset:
+
+| Level | Trigger | What it clears |
+| ----- | ------- | -------------- |
+| Mesh score | `http://192.168.4.1/resetcount` | Packets and peer count |
+| Stored contacts | `http://192.168.4.1/clearcontacts?key=<your-key>` | All contact entries |
+| Custom admin key | `clearkey` over USB serial | Key override (reverts to MAC default) |
+| **Full factory reset** | `factoryreset` over USB serial, **or** hold BOOT for 5 s while plugging in | Everything in the `badge` namespace |
+
+To do a full factory reset without a serial cable:
+
+1. Unplug USB.
+2. Press and hold the BOOT button on the board.
+3. Plug USB back in while still holding.
+4. The LED strip pulses red and ramps up in brightness as the hold progresses.
+5. Keep holding for **5 seconds**. The badge wipes NVS and reboots automatically.
+6. Release the button at any point before 5 seconds to abort — the badge boots normally.
+
+The reset only touches the `badge` namespace. System-level NVS (Wi-Fi credentials, BLE bonding) is preserved. For a true full-flash erase (e.g. recovering from a bricked sketch), see `troubleshooting.md`.
+
 ## Where Things Live
 
 - Hardware diagrams, pin references, and power notes: `wiring.md`.
