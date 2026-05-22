@@ -337,6 +337,14 @@ String reactionName(Reaction r) {
   }
 }
 
+void factoryResetAndReboot() {
+  Serial.println("Factory reset: clearing NVS namespace 'badge' and rebooting...");
+  prefs.clear();
+  prefs.end();
+  delay(200);
+  ESP.restart();
+}
+
 void processSerialLine(String line) {
   line.trim();
   if (line.startsWith("setkey=")) {
@@ -353,6 +361,8 @@ void processSerialLine(String line) {
     prefs.remove("adminKey");
     activeAdminKey = macDerivedAdminKey();
     Serial.println("Admin key cleared. Active key: " + activeAdminKey);
+  } else if (line == "factoryreset") {
+    factoryResetAndReboot();
   }
   // else: silently ignore
 }
@@ -1087,6 +1097,45 @@ void setup() {
   pinMode(BOOT_BUTTON, INPUT_PULLUP);
 
   prefs.begin("badge", false);
+
+  // Hold-BOOT-on-power-up factory reset.
+  // If the BOOT button is held LOW continuously for 5 seconds after power-on,
+  // wipe the NVS namespace 'badge' and reboot. The LED strip pulses red as a
+  // warning so accidental presses are obvious and easy to abort by releasing.
+  if (digitalRead(BOOT_BUTTON) == LOW) {
+    pixels.begin();
+    pixels.setBrightness(64);
+    Serial.println("BOOT held on power-up. Hold for 5 seconds to factory reset.");
+
+    const unsigned long resetHoldMs = 5000;
+    unsigned long start = millis();
+    bool aborted = false;
+
+    while (millis() - start < resetHoldMs) {
+      if (digitalRead(BOOT_BUTTON) == HIGH) {
+        aborted = true;
+        break;
+      }
+      // Red pulse, intensity ramps with hold progress.
+      unsigned long held = millis() - start;
+      uint8_t level = (uint8_t)(20 + (held * 235UL) / resetHoldMs);
+      for (int i = 0; i < NUM_LEDS; i++) {
+        pixels.setPixelColor(i, pixels.Color(level, 0, 0));
+      }
+      pixels.show();
+      delay(40);
+    }
+
+    pixels.clear();
+    pixels.show();
+
+    if (!aborted) {
+      factoryResetAndReboot();
+      // unreachable
+    }
+    Serial.println("Factory reset aborted (BOOT released).");
+  }
+
   loadSettings();
   activeAdminKey = loadActiveAdminKey();
 

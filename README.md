@@ -17,6 +17,7 @@ A self-contained ESP32-C3 conference badge. It hosts an open Wi-Fi captive porta
 - **Nearby Badges** section on the home page: each remembered peer shown with friendly RSSI label (Near / Far / Distant) plus raw dBm and first-seen relative time.
 - **Recent Activity** feed on the home page: last 8 events (reactions, contacts, peer discoveries, level-ups) shown newest-first with relative timestamps. Volatile in RAM.
 - **Per-badge admin key**: each badge boots with a unique 8-character hex key derived from its chip MAC. Optionally override it via NVS using the USB Serial console (`setkey=<value>` / `clearkey`). Reveal the active key from the web UI at `/admin/key` only while the BOOT button is physically held.
+- **Factory reset**: type `factoryreset` over USB serial, or hold the BOOT button while plugging in USB for 5 seconds, to wipe the entire NVS namespace `badge` and reboot.
 - BOOT button (GPIO 9) cycles idle patterns.
 - Persistent settings (brightness, idle pattern, packet count, contact count, peer count) survive reboot via NVS namespace `badge`.
 - Admin endpoints for listing, exporting (CSV), and clearing contacts, gated by the active per-badge admin key.

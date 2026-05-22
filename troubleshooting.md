@@ -52,6 +52,35 @@ Each badge boots with a per-device admin key derived from its chip MAC. There ar
 
 To set a custom key from the serial console: `setkey=your-custom-value`. There is no web form for rotating the admin key.
 
+## Clearing NVS / Factory Reset
+
+The badge supports targeted clears for individual data types as well as a full NVS wipe.
+
+### Clear individual data
+
+| What | How | What gets cleared |
+| ---- | --- | ----------------- |
+| Mesh score | Visit `http://192.168.4.1/resetcount` | `packetCount`, `peerSeenCount`, in-RAM seen peers |
+| Stored contacts | Visit `http://192.168.4.1/clearcontacts?key=<your-key>` | All contact entries plus the contact count |
+| Custom admin key | Type `clearkey` over USB serial at 115200 baud | The NVS admin key override (reverts to the MAC-derived default) |
+
+### Full factory reset
+
+A full reset wipes the entire `badge` NVS namespace (brightness, idle pattern, packet count, contact count, peer count, all stored contacts, custom admin key) and reboots. There are two ways to trigger it:
+
+- **Serial command**: type `factoryreset` over USB serial at 115200 baud. The badge confirms on Serial, wipes NVS, and reboots.
+- **BOOT-button-on-power-up**: hold the BOOT button while plugging in USB and keep holding for **5 seconds**. The LED strip pulses red, ramping up in intensity as the hold progresses. Release at any time before 5 seconds to abort. After 5 seconds, the badge wipes NVS and reboots.
+
+A full factory reset clears only the `badge` NVS namespace. Wi-Fi credentials and BLE bonding entries owned by the Arduino-ESP32 core stay intact — that's almost always what you want.
+
+If you need a true full-flash erase (e.g. recovering from a bricked sketch), do that from the host:
+
+```
+arduino-cli erase --fqbn esp32:esp32:esp32c3 -p COM3
+```
+
+Then reflash the sketch.
+
 ## Brightness Too Dim or Too Bright
 
 - The `/brightness` endpoint clamps the slider value to the inclusive range 5–120 (out of 255).
