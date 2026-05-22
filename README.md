@@ -1,5 +1,9 @@
 # AI Network Badge
 
+<p align="center">
+  <img src="cricut/badge_preview.png" alt="AI Network Badge front: I NETWORK / WITH AI / BUILD THE MESH text with copper traces and 8 LED node rings on a dark circular background" width="360">
+</p>
+
 A self-contained ESP32-C3 conference badge. It hosts an open Wi-Fi captive portal so anyone who joins gets the badge web page automatically, drives an 8-pixel NeoPixel strip with four idle animations and seven scripted reaction effects, runs the "Build the Mesh" packet game with persistent score and level-ups, accepts contact card submissions through a web form and stores them in NVS, and quietly scans for nearby badges over BLE so two attendees with badges greet each other with a link-up animation.
 
 ## Features
