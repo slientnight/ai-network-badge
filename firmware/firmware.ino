@@ -810,6 +810,7 @@ String htmlPage() {
   html += "</form>";
 
   html += "<a class='danger' href='/resetcount'>Reset mesh score</a>";
+  html += "<a class='secondary' href='/admin'>Owner: View Contacts</a>";
 
   html += "<p class='small'>BLE presence: <b>" + String(BLE_BADGE_NAME) + "</b>. Nearby AI badges count as peers.</p>";
   html += "<p class='small'>Admin: <b>/contacts?key=YOUR_KEY</b> and <b>/contacts.csv?key=YOUR_KEY</b></p>";
@@ -844,6 +845,51 @@ String contactSuccessPage(String name) {
   html += "<div class='level'>" + badgeLevelName() + "</div>";
   html += "<p>Mesh packets: " + String(packetCount) + "<br>Packet cards: " + String(contactPacketCount) + "</p>";
   html += "<a href='/'>Back to badge</a>";
+  html += "</div></body></html>";
+
+  return html;
+}
+
+String adminLoginPage(bool wrongKey) {
+  String html = "";
+  html += "<!doctype html><html><head>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<title>Owner Login</title>";
+  html += "<style>";
+  html += ":root{color-scheme:dark;}";
+  html += "body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;";
+  html += "background:radial-gradient(circle at top,#22314a,#090d14 70%);";
+  html += "color:white;margin:0;padding:22px;min-height:100vh;}";
+  html += ".card{max-width:420px;margin:60px auto;background:#121a27ee;";
+  html += "border:1px solid #33435c;border-radius:24px;padding:28px;";
+  html += "box-shadow:0 18px 60px #0009;}";
+  html += "h1{font-size:26px;margin:0 0 6px;}";
+  html += "p{color:#bec8d8;line-height:1.45;margin:6px 0 16px;}";
+  html += "label{display:block;font-weight:800;margin:14px 0 6px;color:#d9e6ff;}";
+  html += "input{width:100%;box-sizing:border-box;border:1px solid #3a4e6c;";
+  html += "background:#172235;color:white;border-radius:12px;padding:12px;font:inherit;}";
+  html += "button{display:block;width:100%;box-sizing:border-box;margin-top:16px;";
+  html += "padding:15px;border-radius:14px;text-align:center;border:0;";
+  html += "background:#2ee58f;color:#06120b;font-weight:800;font-size:16px;cursor:pointer;}";
+  html += "a{display:block;text-align:center;color:#bec8d8;text-decoration:none;margin-top:14px;}";
+  html += ".error{background:#5a2230;border:1px solid #ff7a90;color:#ffd6dc;";
+  html += "border-radius:12px;padding:10px 12px;margin:0 0 12px;font-size:14px;}";
+  html += ".small{font-size:13px;color:#91a0b7;margin-top:18px;}";
+  html += "</style></head><body>";
+
+  html += "<div class='card'>";
+  html += "<h1>Owner Login</h1>";
+  html += "<p>Enter the badge admin key to view stored contacts.</p>";
+  if (wrongKey) {
+    html += "<div class='error'>Wrong key. Try again.</div>";
+  }
+  html += "<form action='/contacts' method='get'>";
+  html += "<label for='key'>Admin key</label>";
+  html += "<input id='key' name='key' type='password' autocomplete='off' autofocus>";
+  html += "<button type='submit'>View Contacts</button>";
+  html += "</form>";
+  html += "<p class='small'>Hold the BOOT button on the badge and visit <b>/admin/key</b> if you forgot the key.</p>";
+  html += "<a href='/'>&larr; Back to badge</a>";
   html += "</div></body></html>";
 
   return html;
@@ -977,8 +1023,20 @@ void handleContactSubmit() {
   server.send(200, "text/html", contactSuccessPage(name));
 }
 
+void handleAdminLogin() {
+  bool wrongKey = server.hasArg("error") && server.arg("error") == "1";
+  server.send(200, "text/html", adminLoginPage(wrongKey));
+}
+
 void handleContactsAdmin() {
   if (!adminAllowed()) {
+    // If the user supplied a key but it was wrong, bounce to the login page
+    // with an error message instead of returning the bare 403.
+    if (server.hasArg("key")) {
+      server.sendHeader("Location", "/admin?error=1");
+      server.send(303);
+      return;
+    }
     server.send(403, "text/plain", "Forbidden. Add ?key=YOUR_ADMIN_KEY");
     return;
   }
@@ -1159,6 +1217,7 @@ void setup() {
   server.on("/contacts", handleContactsAdmin);
   server.on("/contacts.csv", handleContactsCsv);
   server.on("/clearcontacts", handleClearContacts);
+  server.on("/admin", handleAdminLogin);
   server.on("/next", handleNext);
   server.on("/brightness", handleBrightness);
   server.on("/resetcount", handleResetCount);

@@ -116,6 +116,7 @@ Replace `COM3` with the actual port on your system (e.g. `/dev/ttyUSB0` on Linux
 - Try the LED reaction buttons (Send Packet, Establish Link, etc.) and watch the strip respond and the activity feed update.
 - Submit a contact card and confirm it adds +3 packets to your count and shows up under Recent Activity.
 - Admin URL: `http://192.168.4.1/contacts?key=<your-key>`. CSV export: `http://192.168.4.1/contacts.csv?key=<your-key>`.
+- Or use the new owner login page: tap **Owner: View Contacts** on the badge home page (or visit `http://192.168.4.1/admin`), enter your key, and submit.
 - If you don't have the serial cable handy, hold the BOOT button on the badge and visit `http://192.168.4.1/admin/key` from your phone — it returns the active key in plain text only while the button is held.
 - Press the BOOT button on the board to cycle idle patterns.
 
