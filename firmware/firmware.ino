@@ -7,10 +7,7 @@
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <Adafruit_NeoPixel.h>
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEScan.h>
-#include <BLEAdvertisedDevice.h>
+#include <NimBLEDevice.h>
 #include <math.h>
 
 // =============================================================================
@@ -111,7 +108,7 @@ uint32_t packetCount = 0;
 uint32_t contactPacketCount = 0;
 uint32_t peerSeenCount = 0;
 
-BLEScan* bleScan = nullptr;
+NimBLEScan* bleScan = nullptr;
 unsigned long lastBleScan = 0;
 
 PeerRecord seenPeers[MAX_SEEN_PEERS];
@@ -424,28 +421,27 @@ void rememberPeer(String peerName, int8_t rssi) {
   addActivity(ACTIVITY_PEER, "Peer: " + peerName);
 }
 
-class BadgeAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
-  void onResult(BLEAdvertisedDevice advertisedDevice) override {
-    if (!advertisedDevice.haveName()) {
+class BadgeAdvertisedDeviceCallbacks : public NimBLEScanCallbacks {
+  void onResult(const NimBLEAdvertisedDevice* advertisedDevice) override {
+    if (!advertisedDevice->haveName()) {
       return;
     }
 
-    String peerName = String(advertisedDevice.getName().c_str());
-    rememberPeer(peerName, (int8_t)advertisedDevice.getRSSI());
+    String peerName = String(advertisedDevice->getName().c_str());
+    rememberPeer(peerName, (int8_t)advertisedDevice->getRSSI());
   }
 };
 
 void startBlePresence() {
-  BLEDevice::init(BLE_BADGE_NAME);
+  NimBLEDevice::init(BLE_BADGE_NAME);
 
-  BLEAdvertising* advertising = BLEDevice::getAdvertising();
-  advertising->setScanResponse(true);
-  advertising->setMinPreferred(0x06);
-  advertising->setMaxPreferred(0x12);
-  BLEDevice::startAdvertising();
+  NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
+  advertising->setName(BLE_BADGE_NAME);
+  advertising->enableScanResponse(true);
+  NimBLEDevice::startAdvertising();
 
-  bleScan = BLEDevice::getScan();
-  bleScan->setAdvertisedDeviceCallbacks(new BadgeAdvertisedDeviceCallbacks(), true);
+  bleScan = NimBLEDevice::getScan();
+  bleScan->setScanCallbacks(new BadgeAdvertisedDeviceCallbacks(), true);
   bleScan->setActiveScan(true);
   bleScan->setInterval(160);
   bleScan->setWindow(80);
@@ -456,9 +452,9 @@ void runBlePresenceScan() {
   if (millis() - lastBleScan < BLE_SCAN_INTERVAL_MS) return;
 
   lastBleScan = millis();
-  bleScan->start(BLE_SCAN_SECONDS, false);
+  bleScan->start(BLE_SCAN_SECONDS * 1000, false);
   bleScan->clearResults();
-  BLEDevice::startAdvertising();
+  NimBLEDevice::startAdvertising();
 }
 
 // =============================================================================

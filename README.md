@@ -19,7 +19,9 @@ A self-contained ESP32-C3 conference badge. It hosts an open Wi-Fi captive porta
 - **Per-badge admin key**: each badge boots with a unique 8-character hex key derived from its chip MAC. Optionally override it via NVS using the USB Serial console (`setkey=<value>` / `clearkey`). Reveal the active key from the web UI at `/admin/key` only while the BOOT button is physically held.
 - **Owner login page** at `/admin`: friendly password prompt that submits to the admin contacts page. Tapped from the home page button **Owner: View Contacts**. Wrong key bounces back with an inline error.
 - **Factory reset**: type `factoryreset` over USB serial, or hold the BOOT button while plugging in USB for 5 seconds, to wipe the entire NVS namespace `badge` and reboot.
-- **Friendly hostname**: the badge advertises itself over mDNS as `badge.local` so visitors can type that instead of `192.168.4.1`. Works on macOS, iOS, and modern Android — falls back to the captive portal otherwise.
+- **Friendly hostname**: the badge advertises itself over Sharing the GitHub repo for the electronic badge project I’m hoping to build before HPE Discover 2026.
+
+This is mostly a fun side project, but also a great way to spark conversations with new people around networking, AI, and other interesting tech topics. Looking forward to seeing where it goes. as `badge.local` so visitors can type that instead of `192.168.4.1`. Works on macOS, iOS, and modern Android — falls back to the captive portal otherwise.
 - BOOT button (GPIO 9) cycles idle patterns.
 - Persistent settings (brightness, idle pattern, packet count, contact count, peer count) survive reboot via NVS namespace `badge`.
 - Admin endpoints for listing, exporting (CSV), and clearing contacts, gated by the active per-badge admin key.
@@ -45,7 +47,8 @@ Both boards are pin-compatible for this firmware: GPIO 4 drives the LED data lin
   - ESP32-C3 SuperMini: `ESP32C3 Dev Module`.
 - Required libraries:
   - Adafruit NeoPixel — install via Library Manager.
-  - ESP32 BLE — bundled with the `espressif/arduino-esp32` core, no separate install needed.
+  - NimBLE-Arduino — install via Library Manager. Search for "NimBLE-Arduino" by h2zero. Smaller and faster than the bundled BLEDevice library; the badge ships with NimBLE for binary-size headroom.
+  - ESP32 mDNS — bundled with the `espressif/arduino-esp32` core, no separate install needed.
 
 ## Project Layout
 
@@ -103,6 +106,7 @@ The override is stored in NVS and survives reboots until you `clearkey` it. Ther
 ```
 arduino-cli core install esp32:esp32
 arduino-cli lib install "Adafruit NeoPixel"
+arduino-cli lib install "NimBLE-Arduino"
 arduino-cli compile --fqbn esp32:esp32:esp32c3 firmware
 arduino-cli upload --fqbn esp32:esp32:esp32c3 -p COM3 firmware
 ```

@@ -89,8 +89,17 @@ Then reflash the sketch.
 ## Sketch Will Not Compile
 
 - Install the Adafruit NeoPixel library via the Arduino Library Manager.
-- Install the ESP32 board package. The BLE library is bundled with it, so no separate BLE install is needed.
+- Install the NimBLE-Arduino library (search for "NimBLE-Arduino" by h2zero) via the Library Manager. The badge uses NimBLE instead of the bundled BLEDevice library for a smaller binary.
+- Install the ESP32 board package. The mDNS library is bundled with it, so no separate install is needed.
 - Confirm the board selection (`XIAO_ESP32C3` or `ESP32C3 Dev Module`) matches the connected hardware.
+
+## Build Runs Out of Flash / Sketch Too Big
+
+If the linker reports the sketch is too big for the program storage space:
+
+- In Arduino IDE: **Tools → Partition Scheme → Huge APP (3MB No OTA/1MB SPIFFS)**. The badge does not use OTA, so the larger app partition is the right pick. Recompile and upload.
+- In Arduino CLI: append `:PartitionScheme=huge_app` to the FQBN, e.g. `--fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app`.
+- Confirm you installed NimBLE-Arduino instead of (or alongside) the bundled BLEDevice library. The sketch is wired for NimBLE; mixing both pulls in the larger BLE stack and can blow past the partition.
 
 ## Upload Fails
 
