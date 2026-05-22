@@ -1,0 +1,47 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<svg xmlns='http://www.w3.org/2000/svg' width='4in' height='4in' viewBox='0 0 400 400'>
+  <title>I Network With AI badge LED placement guide</title>
+  <rect width='400' height='400' fill='white'/>
+  <circle cx='200' cy='200' r='198' fill='none' stroke='black' stroke-width='2'/>
+  <circle cx='200' cy='28' r='10' fill='none' stroke='#cc3333' stroke-width='2'/>
+  <text x='200' y='18' font-family='Arial, sans-serif' font-size='10' text-anchor='middle' fill='#cc3333'>lanyard hole optional</text>
+  <g id='LED_POSITIONS'>
+    <line x1='200.00' y1='45.00' x2='309.60' y2='90.40' stroke='#555555' stroke-width='2' stroke-linecap='round' opacity='0.5'/><line x1='309.60' y1='90.40' x2='355.00' y2='200.00' stroke='#555555' stroke-width='2' stroke-linecap='round' opacity='0.5'/><line x1='355.00' y1='200.00' x2='309.60' y2='309.60' stroke='#555555' stroke-width='2' stroke-linecap='round' opacity='0.5'/><line x1='309.60' y1='309.60' x2='200.00' y2='355.00' stroke='#555555' stroke-width='2' stroke-linecap='round' opacity='0.5'/><line x1='200.00' y1='355.00' x2='90.40' y2='309.60' stroke='#555555' stroke-width='2' stroke-linecap='round' opacity='0.5'/><line x1='90.40' y1='309.60' x2='45.00' y2='200.00' stroke='#555555' stroke-width='2' stroke-linecap='round' opacity='0.5'/><line x1='45.00' y1='200.00' x2='90.40' y2='90.40' stroke='#555555' stroke-width='2' stroke-linecap='round' opacity='0.5'/><line x1='90.40' y1='90.40' x2='200.00' y2='45.00' stroke='#555555' stroke-width='2' stroke-linecap='round' opacity='0.5'/>
+    <circle cx='200.00' cy='45.00' r='18' fill='none' stroke='#2f80ed' stroke-width='2'/>
+    <line x1='194.00' y1='45.00' x2='206.00' y2='45.00' stroke='#2f80ed' stroke-width='1'/>
+    <line x1='200.00' y1='39.00' x2='200.00' y2='51.00' stroke='#2f80ed' stroke-width='1'/>
+    <text x='200.00' y='79.00' font-family='Arial, sans-serif' font-size='13' text-anchor='middle' fill='#2f80ed'>LED1</text>
+    <circle cx='309.60' cy='90.40' r='18' fill='none' stroke='#2f80ed' stroke-width='2'/>
+    <line x1='303.60' y1='90.40' x2='315.60' y2='90.40' stroke='#2f80ed' stroke-width='1'/>
+    <line x1='309.60' y1='84.40' x2='309.60' y2='96.40' stroke='#2f80ed' stroke-width='1'/>
+    <text x='309.60' y='124.40' font-family='Arial, sans-serif' font-size='13' text-anchor='middle' fill='#2f80ed'>LED2</text>
+    <circle cx='355.00' cy='200.00' r='18' fill='none' stroke='#2f80ed' stroke-width='2'/>
+    <line x1='349.00' y1='200.00' x2='361.00' y2='200.00' stroke='#2f80ed' stroke-width='1'/>
+    <line x1='355.00' y1='194.00' x2='355.00' y2='206.00' stroke='#2f80ed' stroke-width='1'/>
+    <text x='355.00' y='234.00' font-family='Arial, sans-serif' font-size='13' text-anchor='middle' fill='#2f80ed'>LED3</text>
+    <circle cx='309.60' cy='309.60' r='18' fill='none' stroke='#2f80ed' stroke-width='2'/>
+    <line x1='303.60' y1='309.60' x2='315.60' y2='309.60' stroke='#2f80ed' stroke-width='1'/>
+    <line x1='309.60' y1='303.60' x2='309.60' y2='315.60' stroke='#2f80ed' stroke-width='1'/>
+    <text x='309.60' y='343.60' font-family='Arial, sans-serif' font-size='13' text-anchor='middle' fill='#2f80ed'>LED4</text>
+    <circle cx='200.00' cy='355.00' r='18' fill='none' stroke='#2f80ed' stroke-width='2'/>
+    <line x1='194.00' y1='355.00' x2='206.00' y2='355.00' stroke='#2f80ed' stroke-width='1'/>
+    <line x1='200.00' y1='349.00' x2='200.00' y2='361.00' stroke='#2f80ed' stroke-width='1'/>
+    <text x='200.00' y='389.00' font-family='Arial, sans-serif' font-size='13' text-anchor='middle' fill='#2f80ed'>LED5</text>
+    <circle cx='90.40' cy='309.60' r='18' fill='none' stroke='#2f80ed' stroke-width='2'/>
+    <line x1='84.40' y1='309.60' x2='96.40' y2='309.60' stroke='#2f80ed' stroke-width='1'/>
+    <line x1='90.40' y1='303.60' x2='90.40' y2='315.60' stroke='#2f80ed' stroke-width='1'/>
+    <text x='90.40' y='343.60' font-family='Arial, sans-serif' font-size='13' text-anchor='middle' fill='#2f80ed'>LED6</text>
+    <circle cx='45.00' cy='200.00' r='18' fill='none' stroke='#2f80ed' stroke-width='2'/>
+    <line x1='39.00' y1='200.00' x2='51.00' y2='200.00' stroke='#2f80ed' stroke-width='1'/>
+    <line x1='45.00' y1='194.00' x2='45.00' y2='206.00' stroke='#2f80ed' stroke-width='1'/>
+    <text x='45.00' y='234.00' font-family='Arial, sans-serif' font-size='13' text-anchor='middle' fill='#2f80ed'>LED7</text>
+    <circle cx='90.40' cy='90.40' r='18' fill='none' stroke='#2f80ed' stroke-width='2'/>
+    <line x1='84.40' y1='90.40' x2='96.40' y2='90.40' stroke='#2f80ed' stroke-width='1'/>
+    <line x1='90.40' y1='84.40' x2='90.40' y2='96.40' stroke='#2f80ed' stroke-width='1'/>
+    <text x='90.40' y='124.40' font-family='Arial, sans-serif' font-size='13' text-anchor='middle' fill='#2f80ed'>LED8</text>
+  </g>
+  <text x='200' y='184' font-family='Arial, sans-serif' font-size='40' font-weight='700' text-anchor='middle' fill='#222222'>I NETWORK</text>
+  <text x='200' y='226' font-family='Arial, sans-serif' font-size='35' font-weight='700' text-anchor='middle' fill='#222222'>WITH AI</text>
+  <text x='200' y='276' font-family='Arial, sans-serif' font-size='14' text-anchor='middle' fill='#555555'>BUILD THE MESH</text>
+  <text x='200' y='386' font-family='Arial, sans-serif' font-size='12' text-anchor='middle' fill='#555555'>Print this as a placement guide. Do not cut as front vinyl.</text>
+</svg>

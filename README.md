@@ -117,6 +117,7 @@ Replace `COM3` with the actual port on your system (e.g. `/dev/ttyUSB0` on Linux
 ## Where Things Live
 
 - Hardware diagrams, pin references, and power notes: `wiring.md`.
+- Front vinyl, LED placement guide, and back label artwork for a 4-inch acrylic badge: `cricut/`.
 - Common failure modes and recovery steps: `troubleshooting.md`.
 
 ## License / Credits

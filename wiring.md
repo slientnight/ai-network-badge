@@ -78,3 +78,13 @@ What different failure modes look like:
 
 - **Strip stays dark**: see `troubleshooting.md` → "NeoPixels Not Lighting Up". Common causes are reversed data direction (board hooked to DOUT instead of DIN), missing shared ground, or wrong pin.
 - **Strip lights all-white and then goes dark or flickers**: USB supply can't keep up with the inrush. Lower brightness via the badge web page (`http://192.168.4.1`, brightness slider) or move the strip to a powered USB hub.
+
+## Cricut Templates and Badge Front Art
+
+The `cricut/` folder contains 4-inch round badge artwork sized for a Cricut vinyl cutter:
+
+- `front_vinyl_cut.svg` — front vinyl: "I NETWORK / WITH AI / BUILD THE MESH" text plus copper traces and LED node rings.
+- `led_placement_guide.svg` — paper print this and use it behind the acrylic to position the 8 LEDs (LED1 at 12 o'clock, LED2-8 clockwise).
+- `back_label_print_then_cut.svg` — back instruction label with a QR code to `http://192.168.4.1`.
+
+See `cricut/README_cricut.md` for full notes on Cricut Design Space settings, vinyl colors, and the LED numbering layout. The wiring chain (`board GPIO 4 → LED1 DIN → LED1 DOUT → LED2 DIN → ...`) follows that LED1-at-12-o'clock numbering.
