@@ -8,6 +8,7 @@
 #include <Preferences.h>
 #include <Adafruit_NeoPixel.h>
 #include <NimBLEDevice.h>
+#include <esp_mac.h>
 #include <math.h>
 
 // =============================================================================
@@ -290,8 +291,11 @@ String csvEscape(String value) {
 }
 
 String macDerivedAdminKey() {
-  uint8_t mac[6];
-  WiFi.macAddress(mac);
+  // Use the chip's burned-in efuse MAC (always available, factory-fixed) instead
+  // of WiFi.macAddress() which depends on the Wi-Fi driver being initialized
+  // and was returning unstable values when this was called early in setup().
+  uint8_t mac[8] = {0};
+  esp_efuse_mac_get_default(mac);
   char key[9];
   snprintf(key, sizeof(key), "%02x%02x%02x%02x", mac[2], mac[3], mac[4], mac[5]);
   return String(key);
