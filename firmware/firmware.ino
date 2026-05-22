@@ -952,21 +952,13 @@ String captivePortalLandingPage() {
   String html = "";
 
   html += "<!doctype html><html><head>";
-  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
-  html += "<meta http-equiv='Cache-Control' content='no-store, no-cache, must-revalidate, max-age=0'>";
-  html += "<meta http-equiv='Pragma' content='no-cache'>";
-  html += "<title>I Network With AI</title>";
-  html += "<style>body{font-family:system-ui;background:#090d14;color:white;margin:0;padding:24px;}";
-  html += ".card{max-width:520px;margin:auto;background:#121a27;border:1px solid #33435c;border-radius:24px;padding:24px;}";
-  html += "h1{font-size:36px;line-height:1.05;margin:0 0 12px}.level{color:#7dffca;font-size:22px;font-weight:900}";
-  html += "a{display:block;background:#2ee58f;color:#06120b;text-align:center;text-decoration:none;font-weight:900;padding:16px;border-radius:14px;margin-top:18px}";
-  html += "p{color:#bec8d8;line-height:1.45}</style></head><body>";
-  html += "<div class='card'>";
-  html += "<h1>I NETWORK<br>WITH AI</h1>";
-  html += "<div class='level'>BUILD THE MESH</div>";
-  html += "<p>You are connected to Marshall's interactive badge. Tap below to open the badge page and send a packet.</p>";
-  html += "<a href='http://192.168.4.1/'>Open Badge Page</a>";
-  html += "</div></body></html>";
+  html += "<meta name='viewport' content='width=device-width,initial-scale=1'>";
+  html += "<title>AI Network Badge</title>";
+  html += "</head><body style='font-family:system-ui;margin:0;padding:24px;background:#090d14;color:#fff'>";
+  html += "<h1 style='margin:0 0 8px;font-size:30px'>I Network With AI</h1>";
+  html += "<p style='color:#bec8d8;margin:0 0 18px'>Tap below to open the badge.</p>";
+  html += "<a href='http://192.168.4.1/' style='display:block;text-align:center;background:#2ee58f;color:#06120b;text-decoration:none;font-weight:900;padding:16px;border-radius:12px'>Open Badge Page</a>";
+  html += "</body></html>";
 
   return html;
 }
@@ -980,10 +972,21 @@ void handleRoot() {
 }
 
 void handleCaptivePortalProbe() {
-  // iOS/Android/Windows probe URLs should NOT receive their expected success text.
-  // Returning this page makes the device more likely to treat the network as captive.
-  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
-  server.sendHeader("Pragma", "no-cache");
+  // Captive-network probes from iOS, Android, and Windows expect either an
+  // open-internet success body OR a redirect that signals "captive". A 302 to
+  // the badge IP is the fastest way to tell the OS the network is captive
+  // (no body to download, OS pops the portal immediately).
+  server.sendHeader("Location", String("http://") + apIP.toString() + "/", true);
+  server.sendHeader("Cache-Control", "no-store");
+  server.sendHeader("Connection", "close");
+  server.send(302, "text/plain", "");
+}
+
+void handleNotFound() {
+  // For everything else (typed URLs, hostname guesses), return a tiny landing
+  // page rather than a redirect so the captive browser shows our content.
+  server.sendHeader("Cache-Control", "no-store");
+  server.sendHeader("Connection", "close");
   server.send(200, "text/html", captivePortalLandingPage());
 }
 
@@ -1327,8 +1330,6 @@ void setup() {
     MDNS.addService("http", "tcp", 80);
   }
 
-  startBlePresence();
-
   server.on("/", handleRoot);
   server.on("/trigger", handleTrigger);
   server.on("/contact", HTTP_POST, handleContactSubmit);
@@ -1354,9 +1355,13 @@ void setup() {
   server.on("/connecttest.txt", handleCaptivePortalProbe);           // Windows
   server.on("/redirect", redirectToPortal);                          // Windows
 
-  server.onNotFound(handleCaptivePortalProbe);
+  server.onNotFound(handleNotFound);
 
   server.begin();
+
+  // BLE comes up *after* HTTP is serving so the captive portal pops before
+  // the BLE stack init delays the loop.
+  startBlePresence();
 
   Serial.println();
   Serial.println("I NETWORK WITH AI badge started");
