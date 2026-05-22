@@ -16,7 +16,7 @@ A self-contained ESP32-C3 conference badge. It hosts an open Wi-Fi captive porta
 - BLE peer discovery: advertises as `AI-BADGE-MARSHALL`, scans every 20 s for 3 s, dedupes peers whose name starts with `AI-BADGE`, triggers LINKUP on a new peer.
 - **Nearby Badges** section on the home page: each remembered peer shown with friendly RSSI label (Near / Far / Distant) plus raw dBm and first-seen relative time.
 - **Recent Activity** feed on the home page: last 8 events (reactions, contacts, peer discoveries, level-ups) shown newest-first with relative timestamps. Volatile in RAM.
-- **Per-badge admin key**: each badge boots with a unique 8-character hex key derived from its chip MAC. Optionally override it via NVS using the USB Serial console (`setkey=<value>` / `clearkey`). Reveal the active key from the web UI at `/admin/key` only while the BOOT button is physically held.
+- **Per-badge admin key**: each badge boots with a 4-character hex key derived from the last 2 bytes of its chip MAC. Optionally override it via NVS using the USB Serial console (`setkey=<value>` / `clearkey`). Reveal the active key from the web UI at `/admin/key` only while the BOOT button is physically held.
 - **Owner login page** at `/admin`: friendly password prompt that sends the owner to the contacts admin page or the web console, depending on the `?next=` target. Tapped from the home page **Owner: View Contacts** and **Owner: Console** buttons. Wrong key bounces back with an inline error.
 - **Web console** at `/console`: terminal-styled page for running USB-serial commands (`setkey=`, `clearkey`, `factoryreset`) over Wi-Fi. Reuses the same command parser as the USB serial console. Gated by the active admin key — visiting the URL without a key sends the user through the `/admin` login flow first.
 - **Factory reset**: type `factoryreset` over USB serial, or hold the BOOT button while plugging in USB for 5 seconds, to wipe the entire NVS namespace `badge` and reboot.
@@ -77,7 +77,7 @@ Everything below the `END CONFIG` banner is implementation and shouldn't need ed
 
 ### Admin Key (No Edit Needed)
 
-There is intentionally no `ADMIN_KEY` constant in the CONFIG block. Each badge derives a unique key on first boot from its own chip MAC address (the last 4 bytes formatted as 8 lowercase hex characters), so two freshly flashed badges never share the same key. The active key is printed to the USB Serial console at boot.
+There is intentionally no `ADMIN_KEY` constant in the CONFIG block. Each badge derives its key on first boot from its own chip MAC address (the last 2 bytes formatted as 4 lowercase hex characters), so most freshly flashed badges get a key that's both unique and short enough to type from the printed badge. The active key is printed to the USB Serial console at boot.
 
 To override it with a custom value, plug the badge into a serial terminal at 115200 baud and type:
 
@@ -117,7 +117,7 @@ Replace `COM3` with the actual port on your system (e.g. `/dev/ttyUSB0` on Linux
 ## First Boot Checklist
 
 - Power the badge over USB.
-- Open a serial terminal at 115200 baud and note the **active admin key** printed in the boot banner. It looks like `Admin contacts: http://192.168.4.1/contacts?key=ab12cd34`.
+- Open a serial terminal at 115200 baud and note the **active admin key** printed in the boot banner. It looks like `Admin contacts: http://192.168.4.1/contacts?key=cd34`.
 - Look for Wi-Fi network `AI-BADGE` (open, no password) on your phone or laptop.
 - Joining should auto-launch the badge page; if not, open `http://192.168.4.1` or `http://badge.local` in any browser.
 - Confirm the new home-page sections render: **Nearby Badges** (empty until a second badge appears) and **Recent Activity** (should show the boot reaction shortly after).

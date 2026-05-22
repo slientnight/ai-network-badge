@@ -294,10 +294,13 @@ String macDerivedAdminKey() {
   // Use the chip's burned-in efuse MAC (always available, factory-fixed) instead
   // of WiFi.macAddress() which depends on the Wi-Fi driver being initialized
   // and was returning unstable values when this was called early in setup().
+  // Last 2 bytes -> 4 hex chars; short enough to type from a printed badge,
+  // matches the project's low-security threat model (conference badge, not
+  // production auth).
   uint8_t mac[8] = {0};
   esp_efuse_mac_get_default(mac);
-  char key[9];
-  snprintf(key, sizeof(key), "%02x%02x%02x%02x", mac[2], mac[3], mac[4], mac[5]);
+  char key[5];
+  snprintf(key, sizeof(key), "%02x%02x", mac[4], mac[5]);
   return String(key);
 }
 
