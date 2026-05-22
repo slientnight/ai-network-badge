@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
+#include <ESPmDNS.h>
 #include <Preferences.h>
 #include <Adafruit_NeoPixel.h>
 #include <BLEDevice.h>
@@ -40,6 +41,11 @@ const char* BLE_BADGE_NAME   = "AI-BADGE-MARSHALL";
 // Prefix used to detect peer badges during BLE scans. Names starting with
 // this prefix (and not equal to BLE_BADGE_NAME) are counted as peers.
 const char* BLE_BADGE_PREFIX = "AI-BADGE";
+
+// Local hostname advertised over mDNS / Bonjour. Used as `<host>.local` from
+// devices on the badge AP. ESPmDNS expects the bare label without the .local
+// suffix.
+const char* MDNS_HOSTNAME = "badge";
 
 // =============================================================================
 // END CONFIG
@@ -817,7 +823,7 @@ String htmlPage() {
   html += "<p class='small'>Wi-Fi: <b>" + String(AP_SSID) + "</b><br>";
   html += "Open network, no password required.<br>";
   html += "This page should open automatically after joining Wi-Fi.<br>";
-  html += "If not, open: <b>http://192.168.4.1</b></p>";
+  html += "If not, open: <b>http://192.168.4.1</b> or <b>http://" + String(MDNS_HOSTNAME) + ".local</b></p>";
 
   html += "</div></body></html>";
 
@@ -1209,6 +1215,14 @@ void setup() {
   WiFi.softAP(AP_SSID);
 
   dnsServer.start(DNS_PORT, "*", apIP);
+
+  // Advertise the badge over mDNS as <MDNS_HOSTNAME>.local for friendlier URLs
+  // on devices that bind their resolver to the AP. The captive portal still
+  // catches unknown DNS lookups, so this is an enhancement, not a fallback.
+  if (MDNS.begin(MDNS_HOSTNAME)) {
+    MDNS.addService("http", "tcp", 80);
+  }
+
   startBlePresence();
 
   server.on("/", handleRoot);
@@ -1245,6 +1259,9 @@ void setup() {
   Serial.println(AP_SSID);
     Serial.print("Open: http://");
   Serial.println(WiFi.softAPIP());
+  Serial.print("Or try: http://");
+  Serial.print(MDNS_HOSTNAME);
+  Serial.println(".local");
   Serial.print("Admin contacts: http://");
   Serial.print(WiFi.softAPIP());
   Serial.print("/contacts?key=");

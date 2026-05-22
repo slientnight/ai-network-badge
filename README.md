@@ -19,6 +19,7 @@ A self-contained ESP32-C3 conference badge. It hosts an open Wi-Fi captive porta
 - **Per-badge admin key**: each badge boots with a unique 8-character hex key derived from its chip MAC. Optionally override it via NVS using the USB Serial console (`setkey=<value>` / `clearkey`). Reveal the active key from the web UI at `/admin/key` only while the BOOT button is physically held.
 - **Owner login page** at `/admin`: friendly password prompt that submits to the admin contacts page. Tapped from the home page button **Owner: View Contacts**. Wrong key bounces back with an inline error.
 - **Factory reset**: type `factoryreset` over USB serial, or hold the BOOT button while plugging in USB for 5 seconds, to wipe the entire NVS namespace `badge` and reboot.
+- **Friendly hostname**: the badge advertises itself over mDNS as `badge.local` so visitors can type that instead of `192.168.4.1`. Works on macOS, iOS, and modern Android — falls back to the captive portal otherwise.
 - BOOT button (GPIO 9) cycles idle patterns.
 - Persistent settings (brightness, idle pattern, packet count, contact count, peer count) survive reboot via NVS namespace `badge`.
 - Admin endpoints for listing, exporting (CSV), and clearing contacts, gated by the active per-badge admin key.
@@ -113,7 +114,7 @@ Replace `COM3` with the actual port on your system (e.g. `/dev/ttyUSB0` on Linux
 - Power the badge over USB.
 - Open a serial terminal at 115200 baud and note the **active admin key** printed in the boot banner. It looks like `Admin contacts: http://192.168.4.1/contacts?key=ab12cd34`.
 - Look for Wi-Fi network `AI-BADGE` (open, no password) on your phone or laptop.
-- Joining should auto-launch the badge page; if not, open `http://192.168.4.1` in any browser.
+- Joining should auto-launch the badge page; if not, open `http://192.168.4.1` or `http://badge.local` in any browser.
 - Confirm the new home-page sections render: **Nearby Badges** (empty until a second badge appears) and **Recent Activity** (should show the boot reaction shortly after).
 - Try the LED reaction buttons (Send Packet, Establish Link, etc.) and watch the strip respond and the activity feed update.
 - Submit a contact card and confirm it adds +3 packets to your count and shows up under Recent Activity.
