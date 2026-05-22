@@ -19,7 +19,7 @@
 
 // ---- Change these before taking the badge to an event ----------------------
 //   BADGE_OWNER, BADGE_TITLE, LINKEDIN_URL, GITHUB_URL,
-//   BLE_BADGE_NAME, BLE_BADGE_PREFIX, ADMIN_KEY
+//   BLE_BADGE_NAME, BLE_BADGE_PREFIX
 // ----------------------------------------------------------------------------
 
 // Display name shown on the badge web page ("Hi, I'm <BADGE_OWNER>").
@@ -40,10 +40,6 @@ const char* BLE_BADGE_NAME   = "AI-BADGE-MARSHALL";
 // Prefix used to detect peer badges during BLE scans. Names starting with
 // this prefix (and not equal to BLE_BADGE_NAME) are counted as peers.
 const char* BLE_BADGE_PREFIX = "AI-BADGE";
-
-// URL key required for /contacts, /contacts.csv, /clearcontacts admin pages.
-// This is a soft gate, not real auth — change it before each event.
-const char* ADMIN_KEY = "meshadmin";
 
 // =============================================================================
 // END CONFIG
@@ -67,12 +63,36 @@ const uint32_t BLE_SCAN_SECONDS = 3;
 const uint8_t MAX_SEEN_PEERS = 12;
 const unsigned long REACTION_MS = 4500;
 
+const uint8_t ACTIVITY_BUFFER_SIZE = 8;
+const uint16_t SERIAL_LINE_MAX = 96;
+
 const byte DNS_PORT = 53;
 IPAddress apIP(192, 168, 4, 1);
 IPAddress netMsk(255, 255, 255, 0);
 // =============================================================================
 // Section 4: Globals and runtime state
 // =============================================================================
+
+struct PeerRecord {
+  String name;
+  int8_t rssiFirst;
+  int8_t rssiLast;
+  unsigned long firstSeenMs;
+  unsigned long lastSeenMs;
+};
+
+enum ActivityCategory {
+  ACTIVITY_REACTION,
+  ACTIVITY_CONTACT,
+  ACTIVITY_PEER,
+  ACTIVITY_LEVEL_UP
+};
+
+struct ActivityEntry {
+  String label;
+  unsigned long timestamp;
+  ActivityCategory category;
+};
 
 Adafruit_NeoPixel pixels(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 WebServer server(80);
@@ -88,7 +108,7 @@ uint32_t peerSeenCount = 0;
 BLEScan* bleScan = nullptr;
 unsigned long lastBleScan = 0;
 
-String seenPeers[MAX_SEEN_PEERS];
+PeerRecord seenPeers[MAX_SEEN_PEERS];
 uint8_t seenPeerSlots = 0;
 
 uint16_t frame = 0;
@@ -111,6 +131,12 @@ Reaction activeReaction = REACTION_NONE;
 unsigned long reactionStart = 0;
 
 String lastSignal = "None yet";
+
+String activeAdminKey = "";
+ActivityEntry activityBuffer[ACTIVITY_BUFFER_SIZE];
+uint8_t activityHead = 0;
+uint8_t activityCount = 0;
+String serialLine = "";
 
 // =============================================================================
 // Section 5: Helpers
@@ -255,31 +281,122 @@ String csvEscape(String value) {
   return "\"" + value + "\"";
 }
 
+String macDerivedAdminKey() {
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  char key[9];
+  snprintf(key, sizeof(key), "%02x%02x%02x%02x", mac[2], mac[3], mac[4], mac[5]);
+  return String(key);
+}
+
+String loadActiveAdminKey() {
+  String stored = prefs.getString("adminKey", "");
+  if (stored.length() > 0) {
+    return stored;
+  }
+  return macDerivedAdminKey();
+}
+
+String relativeTimeString(unsigned long pastMs) {
+  unsigned long now = millis();
+  if (pastMs > now) return "just now";
+  unsigned long delta = now - pastMs;
+  if (delta < 10000UL) return "just now";
+  if (delta < 60000UL) return String((unsigned long)(delta / 1000UL)) + " sec ago";
+  if (delta < 3600000UL) return String((unsigned long)(delta / 60000UL)) + " min ago";
+  if (delta < 86400000UL) return String((unsigned long)(delta / 3600000UL)) + " hr ago";
+  return "24+ hr ago";
+}
+
+String rssiLabel(int8_t rssi) {
+  if (rssi >= -60) return "Near";
+  if (rssi >= -80) return "Far";
+  return "Distant";
+}
+
+void addActivity(ActivityCategory category, String label) {
+  activityBuffer[activityHead].label = label;
+  activityBuffer[activityHead].timestamp = millis();
+  activityBuffer[activityHead].category = category;
+  activityHead = (activityHead + 1) % ACTIVITY_BUFFER_SIZE;
+  if (activityCount < ACTIVITY_BUFFER_SIZE) {
+    activityCount++;
+  }
+}
+
+String reactionName(Reaction r) {
+  switch (r) {
+    case REACTION_PACKET:   return "Packet";
+    case REACTION_LINKUP:   return "Link";
+    case REACTION_AI:       return "AI inference";
+    case REACTION_STORM:    return "Storm";
+    case REACTION_GITHUB:   return "GitHub";
+    case REACTION_LINKEDIN: return "LinkedIn";
+    case REACTION_CONTACT:  return "Contact";
+    default:                return "Reaction";
+  }
+}
+
+void processSerialLine(String line) {
+  line.trim();
+  if (line.startsWith("setkey=")) {
+    String value = line.substring(7);
+    value.trim();
+    if (value.length() == 0) {
+      Serial.println("setkey= requires a non-empty value");
+      return;
+    }
+    prefs.putString("adminKey", value);
+    activeAdminKey = value;
+    Serial.println("Admin key set: " + activeAdminKey);
+  } else if (line == "clearkey") {
+    prefs.remove("adminKey");
+    activeAdminKey = macDerivedAdminKey();
+    Serial.println("Admin key cleared. Active key: " + activeAdminKey);
+  }
+  // else: silently ignore
+}
+
 bool adminAllowed() {
-  return server.hasArg("key") && server.arg("key") == ADMIN_KEY;
+  return server.hasArg("key") && server.arg("key") == activeAdminKey;
 }
 
 bool peerAlreadySeen(String peerName) {
   for (uint8_t i = 0; i < seenPeerSlots; i++) {
-    if (seenPeers[i] == peerName) {
+    if (seenPeers[i].name == peerName) {
       return true;
     }
   }
   return false;
 }
 
-void rememberPeer(String peerName) {
+void rememberPeer(String peerName, int8_t rssi) {
   if (peerName.length() == 0) return;
   if (peerName == String(BLE_BADGE_NAME)) return;
   if (!peerName.startsWith(BLE_BADGE_PREFIX)) return;
-  if (peerAlreadySeen(peerName)) return;
 
+  // Repeat sighting — update rssiLast and lastSeenMs only.
+  for (uint8_t i = 0; i < seenPeerSlots; i++) {
+    if (seenPeers[i].name == peerName) {
+      seenPeers[i].rssiLast = rssi;
+      seenPeers[i].lastSeenMs = millis();
+      return;
+    }
+  }
+
+  // First sighting — populate a fresh PeerRecord.
+  uint8_t idx;
   if (seenPeerSlots < MAX_SEEN_PEERS) {
-    seenPeers[seenPeerSlots++] = peerName;
+    idx = seenPeerSlots++;
   } else {
     // Simple ring-ish behavior: overwrite slot 0 if the demo sees many badges.
-    seenPeers[0] = peerName;
+    idx = 0;
   }
+  seenPeers[idx].name = peerName;
+  seenPeers[idx].rssiFirst = rssi;
+  seenPeers[idx].rssiLast = rssi;
+  seenPeers[idx].firstSeenMs = millis();
+  seenPeers[idx].lastSeenMs = millis();
 
   peerSeenCount++;
   lastSignal = "Peer found: " + peerName;
@@ -287,6 +404,8 @@ void rememberPeer(String peerName) {
 
   activeReaction = REACTION_LINKUP;
   reactionStart = millis();
+
+  addActivity(ACTIVITY_PEER, "Peer: " + peerName);
 }
 
 class BadgeAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
@@ -296,7 +415,7 @@ class BadgeAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
     }
 
     String peerName = String(advertisedDevice.getName().c_str());
-    rememberPeer(peerName);
+    rememberPeer(peerName, (int8_t)advertisedDevice.getRSSI());
   }
 };
 
@@ -536,6 +655,10 @@ void triggerReaction(Reaction r, String signalName, uint8_t packetValue) {
   reactionStart = millis();
   lastSignal = signalName;
 
+  if (r != REACTION_NONE) {
+    addActivity(ACTIVITY_REACTION, reactionName(r));
+  }
+
   if (packetValue > 0) {
     uint32_t before = packetCount;
     packetCount += packetValue;
@@ -544,6 +667,7 @@ void triggerReaction(Reaction r, String signalName, uint8_t packetValue) {
       activeReaction = REACTION_STORM;
       reactionStart = millis();
       lastSignal = "LEVEL UP: " + badgeLevelName();
+      addActivity(ACTIVITY_LEVEL_UP, "Level up: " + badgeLevelName());
     }
   }
 
@@ -615,6 +739,32 @@ String htmlPage() {
   html += "<h2>Connect</h2>";
   html += "<a href='" + String(LINKEDIN_URL) + "' target='_blank'>Connect on LinkedIn</a>";
   html += "<a href='" + String(GITHUB_URL) + "' target='_blank'>View GitHub</a>";
+
+  html += "<h2>Nearby Badges</h2>";
+  html += "<div class='game'>";
+  if (seenPeerSlots == 0) {
+    html += "<p class='small'>No peers seen yet.</p>";
+  } else {
+    for (uint8_t i = 0; i < seenPeerSlots; i++) {
+      html += "<p><b>" + escapeHtml(seenPeers[i].name) + "</b> ";
+      html += "<span class='pill'>" + rssiLabel(seenPeers[i].rssiLast) + " (" + String(seenPeers[i].rssiLast) + " dBm)</span> ";
+      html += "<span class='small'>" + relativeTimeString(seenPeers[i].firstSeenMs) + "</span></p>";
+    }
+  }
+  html += "</div>";
+
+  html += "<h2>Recent Activity</h2>";
+  html += "<div class='game'>";
+  if (activityCount == 0) {
+    html += "<p class='small'>No activity yet.</p>";
+  } else {
+    for (uint8_t i = 0; i < activityCount; i++) {
+      uint8_t idx = (activityHead + ACTIVITY_BUFFER_SIZE - 1 - i) % ACTIVITY_BUFFER_SIZE;
+      html += "<p>" + escapeHtml(activityBuffer[idx].label) + " ";
+      html += "<span class='small'>" + relativeTimeString(activityBuffer[idx].timestamp) + "</span></p>";
+    }
+  }
+  html += "</div>";
 
   html += "<h2>Send a packet</h2>";
   html += "<div class='grid'>";
@@ -703,8 +853,8 @@ String adminContactsPage() {
   html += "<div class='card'>";
   html += "<h1>Badge Contacts</h1>";
   html += "<p>Stored locally on this badge. Contacts: <b>" + String(contactPacketCount) + "</b> / " + String(MAX_CONTACTS) + "</p>";
-  html += "<a href='/contacts.csv?key=" + String(ADMIN_KEY) + "'>Download CSV</a>";
-  html += "<a class='danger' href='/clearcontacts?key=" + String(ADMIN_KEY) + "'>Clear contacts</a>";
+  html += "<a href='/contacts.csv?key=" + activeAdminKey + "'>Download CSV</a>";
+  html += "<a class='danger' href='/clearcontacts?key=" + activeAdminKey + "'>Clear contacts</a>";
   html += "<a href='/'>Back to badge</a>";
 
   html += "<table><tr><th>#</th><th>Name</th><th>Contact</th><th>Note</th></tr>";
@@ -812,6 +962,8 @@ void handleContactSubmit() {
   contactPacketCount++;
   triggerReaction(REACTION_CONTACT, "Contact packet received", CONTACT_PACKET_VALUE);
 
+  addActivity(ACTIVITY_CONTACT, name.length() > 0 ? "Contact from " + name : "Contact card received");
+
   server.send(200, "text/html", contactSuccessPage(name));
 }
 
@@ -860,8 +1012,16 @@ void handleClearContacts() {
   saveSettings();
   lastSignal = "Contacts cleared";
 
-  server.sendHeader("Location", String("/contacts?key=") + ADMIN_KEY);
+  server.sendHeader("Location", String("/contacts?key=") + activeAdminKey);
   server.send(303);
+}
+
+void handleAdminKeyReveal() {
+  if (digitalRead(BOOT_BUTTON) == LOW) {
+    server.send(200, "text/plain", activeAdminKey);
+  } else {
+    server.send(403, "text/plain", "Hold the BOOT button on the badge and reload this page.");
+  }
 }
 
 void handleNext() {
@@ -928,6 +1088,7 @@ void setup() {
 
   prefs.begin("badge", false);
   loadSettings();
+  activeAdminKey = loadActiveAdminKey();
 
   pixels.begin();
   pixels.setBrightness(brightness);
@@ -952,6 +1113,7 @@ void setup() {
   server.on("/next", handleNext);
   server.on("/brightness", handleBrightness);
   server.on("/resetcount", handleResetCount);
+  server.on("/admin/key", handleAdminKeyReveal);
 
   // Common captive portal detection URLs
   server.on("/generate_204", handleCaptivePortalProbe);              // Android
@@ -978,12 +1140,24 @@ void setup() {
   Serial.print("Admin contacts: http://");
   Serial.print(WiFi.softAPIP());
   Serial.print("/contacts?key=");
-  Serial.println(ADMIN_KEY);
+  Serial.println(activeAdminKey);
 
   triggerReaction(REACTION_AI, "Badge booted", 0);
 }
 
 void loop() {
+  while (Serial.available() > 0) {
+    char ch = Serial.read();
+    if (ch == '\n' || ch == '\r') {
+      if (serialLine.length() > 0) {
+        processSerialLine(serialLine);
+        serialLine = "";
+      }
+    } else if (serialLine.length() < SERIAL_LINE_MAX) {
+      serialLine += ch;
+    }
+    // else: drop the byte; line will be discarded on next newline
+  }
   dnsServer.processNextRequest();
   server.handleClient();
   runBlePresenceScan();
