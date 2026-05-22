@@ -831,7 +831,7 @@ String htmlPage() {
 
   html += "<a class='danger' href='/resetcount'>Reset mesh score</a>";
   html += "<a class='secondary' href='/admin'>Owner: View Contacts</a>";
-  html += "<a class='secondary' href='/console?key=" + activeAdminKey + "'>Owner: Console</a>";
+  html += "<a class='secondary' href='/admin?next=/console'>Owner: Console</a>";
 
   html += "<p class='small'>BLE presence: <b>" + String(BLE_BADGE_NAME) + "</b>. Nearby AI badges count as peers.</p>";
   html += "<p class='small'>Admin: <b>/contacts?key=YOUR_KEY</b> and <b>/contacts.csv?key=YOUR_KEY</b></p>";
@@ -871,7 +871,7 @@ String contactSuccessPage(String name) {
   return html;
 }
 
-String adminLoginPage(bool wrongKey) {
+String adminLoginPage(bool wrongKey, String nextPath) {
   String html = "";
   html += "<!doctype html><html><head>";
   html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
@@ -904,7 +904,7 @@ String adminLoginPage(bool wrongKey) {
   if (wrongKey) {
     html += "<div class='error'>Wrong key. Try again.</div>";
   }
-  html += "<form action='/contacts' method='get'>";
+  html += "<form action='" + nextPath + "' method='get'>";
   html += "<label for='key'>Admin key</label>";
   html += "<input id='key' name='key' type='password' autocomplete='off' autofocus>";
   html += "<button type='submit'>View Contacts</button>";
@@ -932,6 +932,7 @@ String adminContactsPage() {
   html += "<p>Stored locally on this badge. Contacts: <b>" + String(contactPacketCount) + "</b> / " + String(MAX_CONTACTS) + "</p>";
   html += "<a href='/contacts.csv?key=" + activeAdminKey + "'>Download CSV</a>";
   html += "<a class='danger' href='/clearcontacts?key=" + activeAdminKey + "'>Clear contacts</a>";
+  html += "<a href='/console?key=" + activeAdminKey + "'>Console</a>";
   html += "<a href='/'>Back to badge</a>";
 
   html += "<table><tr><th>#</th><th>Name</th><th>Contact</th><th>Note</th></tr>";
@@ -1049,7 +1050,17 @@ void handleContactSubmit() {
 
 void handleAdminLogin() {
   bool wrongKey = server.hasArg("error") && server.arg("error") == "1";
-  server.send(200, "text/html", adminLoginPage(wrongKey));
+  // The login form posts the key directly to whichever target the caller
+  // wants. Default to /contacts (the original admin destination); accept
+  // ?next=/console (or any /-prefixed path) to support other admin pages.
+  String nextPath = "/contacts";
+  if (server.hasArg("next")) {
+    String requested = server.arg("next");
+    if (requested.length() > 0 && requested.startsWith("/")) {
+      nextPath = requested;
+    }
+  }
+  server.send(200, "text/html", adminLoginPage(wrongKey, nextPath));
 }
 
 void handleContactsAdmin() {
@@ -1167,7 +1178,7 @@ String consolePage() {
   html += "</form>";
 
   html += "<p class='small'>Available commands: <code>setkey=&lt;value&gt;</code>, <code>clearkey</code>, <code>factoryreset</code>. Anything else is logged as Unknown command.</p>";
-  html += "<p class='small'><a href='/'>&larr; Back to badge</a> &nbsp;&middot;&nbsp; <a href='/contacts?key=" + activeAdminKey + "'>Contacts</a></p>";
+  html += "<p class='small'><a href='/contacts?key=" + activeAdminKey + "'>&rarr; View Contacts</a></p>";
   html += "</div>";
 
   // Auto-scroll the log to the bottom on every page load so newest output is visible.
@@ -1179,11 +1190,11 @@ String consolePage() {
 void handleConsole() {
   if (!adminAllowed()) {
     if (server.hasArg("key")) {
-      server.sendHeader("Location", "/admin?error=1");
+      server.sendHeader("Location", "/admin?error=1&next=/console");
       server.send(303);
       return;
     }
-    server.sendHeader("Location", "/admin");
+    server.sendHeader("Location", "/admin?next=/console");
     server.send(303);
     return;
   }
