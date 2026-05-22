@@ -18,6 +18,7 @@ A self-contained ESP32-C3 conference badge. It hosts an open Wi-Fi captive porta
 - **Recent Activity** feed on the home page: last 8 events (reactions, contacts, peer discoveries, level-ups) shown newest-first with relative timestamps. Volatile in RAM.
 - **Per-badge admin key**: each badge boots with a unique 8-character hex key derived from its chip MAC. Optionally override it via NVS using the USB Serial console (`setkey=<value>` / `clearkey`). Reveal the active key from the web UI at `/admin/key` only while the BOOT button is physically held.
 - **Owner login page** at `/admin`: friendly password prompt that submits to the admin contacts page. Tapped from the home page button **Owner: View Contacts**. Wrong key bounces back with an inline error.
+- **Web console** at `/console`: terminal-styled page for running USB-serial commands (`setkey=`, `clearkey`, `factoryreset`) over Wi-Fi. Reuses the same command parser as the USB serial console. Gated by the active admin key.
 - **Factory reset**: type `factoryreset` over USB serial, or hold the BOOT button while plugging in USB for 5 seconds, to wipe the entire NVS namespace `badge` and reboot.
 - **Friendly hostname**: the badge advertises itself over Sharing the GitHub repo for the electronic badge project I’m hoping to build before HPE Discover 2026.
 
@@ -163,6 +164,7 @@ All routes are served from `http://192.168.4.1/` while connected to the badge's 
 | GET    | `/resetcount`         | none                  | Resets mesh score and peer count |
 | GET    | `/admin`              | none (login page)     | Owner login form for the contacts admin page |
 | GET    | `/admin/key`          | BOOT button held      | Returns the active admin key in plain text only while BOOT is pressed |
+| GET    | `/console`            | admin key             | Web serial console: type `setkey=`, `clearkey`, or `factoryreset` from a browser |
 | GET    | `/contacts?key=`      | admin key             | HTML list of stored contacts |
 | GET    | `/contacts.csv?key=`  | admin key             | CSV download of stored contacts |
 | GET    | `/clearcontacts?key=` | admin key             | Wipes all stored contacts |
@@ -178,6 +180,8 @@ Open a serial terminal at **115200 baud** and type one of these commands followe
 | `setkey=<value>` | Stores `<value>` as the custom admin key in NVS and prints confirmation. Empty values are rejected. |
 | `clearkey` | Removes the custom admin key and reverts to the MAC-derived default. Prints the new active key. |
 | `factoryreset` | Wipes the entire `badge` NVS namespace and reboots the badge. |
+
+The same commands also work from the **web console** at `http://192.168.4.1/console` (or `http://badge.local/console`) without a USB cable. The web console gates on the active admin key and reuses the same command parser; output is mirrored to a small in-memory log shown on the page.
 
 Unknown lines are ignored silently. Lines longer than 96 bytes are truncated at the next newline.
 

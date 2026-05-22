@@ -68,6 +68,7 @@ const unsigned long REACTION_MS = 4500;
 
 const uint8_t ACTIVITY_BUFFER_SIZE = 8;
 const uint16_t SERIAL_LINE_MAX = 96;
+const uint8_t CONSOLE_LOG_LINES = 24;
 
 const byte DNS_PORT = 53;
 IPAddress apIP(192, 168, 4, 1);
@@ -140,6 +141,10 @@ ActivityEntry activityBuffer[ACTIVITY_BUFFER_SIZE];
 uint8_t activityHead = 0;
 uint8_t activityCount = 0;
 String serialLine = "";
+
+String consoleLogBuffer[CONSOLE_LOG_LINES];
+uint8_t consoleLogHead = 0;
+uint8_t consoleLogCount = 0;
 
 // =============================================================================
 // Section 5: Helpers
@@ -348,26 +353,40 @@ void factoryResetAndReboot() {
   ESP.restart();
 }
 
+// Single output choke point used by both the USB serial command handler and
+// the web console. Writes to the hardware Serial and also to a small ring
+// buffer that the web console reads back.
+void consoleLog(String line) {
+  Serial.println(line);
+  consoleLogBuffer[consoleLogHead] = line;
+  consoleLogHead = (consoleLogHead + 1) % CONSOLE_LOG_LINES;
+  if (consoleLogCount < CONSOLE_LOG_LINES) {
+    consoleLogCount++;
+  }
+}
+
 void processSerialLine(String line) {
   line.trim();
   if (line.startsWith("setkey=")) {
     String value = line.substring(7);
     value.trim();
     if (value.length() == 0) {
-      Serial.println("setkey= requires a non-empty value");
+      consoleLog("setkey= requires a non-empty value");
       return;
     }
     prefs.putString("adminKey", value);
     activeAdminKey = value;
-    Serial.println("Admin key set: " + activeAdminKey);
+    consoleLog("Admin key set: " + activeAdminKey);
   } else if (line == "clearkey") {
     prefs.remove("adminKey");
     activeAdminKey = macDerivedAdminKey();
-    Serial.println("Admin key cleared. Active key: " + activeAdminKey);
+    consoleLog("Admin key cleared. Active key: " + activeAdminKey);
   } else if (line == "factoryreset") {
     factoryResetAndReboot();
+  } else if (line.length() > 0) {
+    consoleLog("Unknown command: " + line);
   }
-  // else: silently ignore
+}
 }
 
 bool adminAllowed() {
@@ -813,6 +832,7 @@ String htmlPage() {
 
   html += "<a class='danger' href='/resetcount'>Reset mesh score</a>";
   html += "<a class='secondary' href='/admin'>Owner: View Contacts</a>";
+  html += "<a class='secondary' href='/console?key=" + activeAdminKey + "'>Owner: Console</a>";
 
   html += "<p class='small'>BLE presence: <b>" + String(BLE_BADGE_NAME) + "</b>. Nearby AI badges count as peers.</p>";
   html += "<p class='small'>Admin: <b>/contacts?key=YOUR_KEY</b> and <b>/contacts.csv?key=YOUR_KEY</b></p>";
@@ -1094,6 +1114,95 @@ void handleAdminKeyReveal() {
   }
 }
 
+String consolePage() {
+  String html = "";
+  html += "<!doctype html><html><head>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<title>Badge Console</title>";
+  html += "<style>";
+  html += ":root{color-scheme:dark;}";
+  html += "body{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;";
+  html += "background:#090d14;color:#dbe8ff;margin:0;padding:18px;min-height:100vh;}";
+  html += ".card{max-width:760px;margin:auto;background:#121a27;";
+  html += "border:1px solid #33435c;border-radius:18px;padding:18px;}";
+  html += "h1{font-size:20px;margin:0 0 6px;color:#fff;}";
+  html += "p{color:#bec8d8;margin:4px 0 14px;}";
+  html += ".log{background:#070b12;border:1px solid #2a364c;border-radius:12px;";
+  html += "padding:12px;height:340px;overflow-y:auto;white-space:pre-wrap;";
+  html += "font-size:13px;line-height:1.45;color:#a8d8ff;}";
+  html += ".log .empty{color:#5c6c83;font-style:italic;}";
+  html += "form{display:flex;gap:8px;margin-top:14px;}";
+  html += "input{flex:1;border:1px solid #3a4e6c;background:#172235;color:white;";
+  html += "border-radius:10px;padding:11px 12px;font:inherit;font-size:14px;}";
+  html += "button{border:0;background:#2ee58f;color:#06120b;font-weight:800;";
+  html += "padding:11px 16px;border-radius:10px;cursor:pointer;font-size:14px;}";
+  html += ".small{font-size:12px;color:#7a8aa3;margin-top:14px;}";
+  html += ".small code{background:#172235;padding:1px 6px;border-radius:6px;}";
+  html += "a{color:#7dffca;text-decoration:none;}";
+  html += "</style></head><body>";
+
+  html += "<div class='card'>";
+  html += "<h1>Badge Console</h1>";
+  html += "<p>Type a command below. Output is streamed to the log.</p>";
+
+  html += "<div class='log'>";
+  if (consoleLogCount == 0) {
+    html += "<div class='empty'>No output yet. Try a command.</div>";
+  } else {
+    // Render oldest-first so the log scrolls naturally.
+    uint8_t start = (consoleLogHead + CONSOLE_LOG_LINES - consoleLogCount) % CONSOLE_LOG_LINES;
+    for (uint8_t i = 0; i < consoleLogCount; i++) {
+      uint8_t idx = (start + i) % CONSOLE_LOG_LINES;
+      html += escapeHtml(consoleLogBuffer[idx]) + "\n";
+    }
+  }
+  html += "</div>";
+
+  html += "<form action='/console' method='get'>";
+  html += "<input type='hidden' name='key' value='" + activeAdminKey + "'>";
+  html += "<input name='cmd' placeholder='setkey=newvalue, clearkey, factoryreset...' autocomplete='off' autofocus>";
+  html += "<button type='submit'>Run</button>";
+  html += "</form>";
+
+  html += "<p class='small'>Available commands: <code>setkey=&lt;value&gt;</code>, <code>clearkey</code>, <code>factoryreset</code>. Anything else is logged as Unknown command.</p>";
+  html += "<p class='small'><a href='/'>&larr; Back to badge</a> &nbsp;&middot;&nbsp; <a href='/contacts?key=" + activeAdminKey + "'>Contacts</a></p>";
+  html += "</div>";
+
+  // Auto-scroll the log to the bottom on every page load so newest output is visible.
+  html += "<script>(function(){var l=document.querySelector('.log');if(l)l.scrollTop=l.scrollHeight;})();</script>";
+  html += "</body></html>";
+  return html;
+}
+
+void handleConsole() {
+  if (!adminAllowed()) {
+    if (server.hasArg("key")) {
+      server.sendHeader("Location", "/admin?error=1");
+      server.send(303);
+      return;
+    }
+    server.sendHeader("Location", "/admin");
+    server.send(303);
+    return;
+  }
+
+  if (server.hasArg("cmd")) {
+    String cmd = server.arg("cmd");
+    cmd.trim();
+    if (cmd.length() > 0) {
+      consoleLog("> " + cmd);
+      processSerialLine(cmd);
+    }
+    // Redirect after the command so a refresh does not re-run it (PRG pattern).
+    // The redirect carries the active key so the page stays accessible.
+    server.sendHeader("Location", "/console?key=" + activeAdminKey);
+    server.send(303);
+    return;
+  }
+
+  server.send(200, "text/html", consolePage());
+}
+
 void handleNext() {
   idlePattern = (idlePattern + 1) % 4;
   lastSignal = "Idle pattern changed";
@@ -1232,6 +1341,7 @@ void setup() {
   server.on("/brightness", handleBrightness);
   server.on("/resetcount", handleResetCount);
   server.on("/admin/key", handleAdminKeyReveal);
+  server.on("/console", handleConsole);
 
   // Common captive portal detection URLs
   server.on("/generate_204", handleCaptivePortalProbe);              // Android
