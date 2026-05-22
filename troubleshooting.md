@@ -40,7 +40,17 @@ Click the Wi-Fi icon in the system tray and use the "Open browser" link, or open
 - The cap is 25 contacts (`MAX_CONTACTS`). After that, the form returns HTTP 507.
 - Admin export: `http://192.168.4.1/contacts.csv?key=<ADMIN_KEY>`
 - Admin clear: `http://192.168.4.1/clearcontacts?key=<ADMIN_KEY>`
-- Replace `<ADMIN_KEY>` with whatever you set in the CONFIG block (default `meshadmin`).
+- Replace `<ADMIN_KEY>` with the badge's active admin key (see "Lost the admin key" below for how to find it).
+
+## Lost the Admin Key
+
+Each badge boots with a per-device admin key derived from its chip MAC. There are three ways to find it:
+
+- **Serial console**: open a 115200-baud serial terminal and reboot the badge. The boot banner prints the active key.
+- **BOOT-gated web reveal**: hold the BOOT button on the badge and visit `http://192.168.4.1/admin/key`. While the button is held, the page returns the active key in plain text. Without the button held, the page returns 403.
+- **Reset to MAC default**: from the serial console, type `clearkey` and press enter. The badge will print the new active key (which is the MAC-derived default).
+
+To set a custom key from the serial console: `setkey=your-custom-value`. There is no web form for rotating the admin key.
 
 ## Brightness Too Dim or Too Bright
 
