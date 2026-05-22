@@ -17,6 +17,7 @@ A self-contained ESP32-C3 conference badge. It hosts an open Wi-Fi captive porta
 - **Nearby Badges** section on the home page: each remembered peer shown with friendly RSSI label (Near / Far / Distant) plus raw dBm and first-seen relative time.
 - **Recent Activity** feed on the home page: last 8 events (reactions, contacts, peer discoveries, level-ups) shown newest-first with relative timestamps. Volatile in RAM.
 - **Per-badge admin key**: each badge boots with a unique 8-character hex key derived from its chip MAC. Optionally override it via NVS using the USB Serial console (`setkey=<value>` / `clearkey`). Reveal the active key from the web UI at `/admin/key` only while the BOOT button is physically held.
+- **Owner login page** at `/admin`: friendly password prompt that submits to the admin contacts page. Tapped from the home page button **Owner: View Contacts**. Wrong key bounces back with an inline error.
 - **Factory reset**: type `factoryreset` over USB serial, or hold the BOOT button while plugging in USB for 5 seconds, to wipe the entire NVS namespace `badge` and reboot.
 - BOOT button (GPIO 9) cycles idle patterns.
 - Persistent settings (brightness, idle pattern, packet count, contact count, peer count) survive reboot via NVS namespace `badge`.
@@ -48,11 +49,12 @@ Both boards are pin-compatible for this firmware: GPIO 4 drives the LED data lin
 ## Project Layout
 
 ```
-firmware/
-  firmware.ino   # the sketch
+firmware/firmware.ino    # the Arduino sketch
+cricut/                  # 4-inch round badge artwork (vinyl + back label + QR)
 README.md
 wiring.md
 troubleshooting.md
+.kiro/                   # spec docs (requirements / design / tasks)
 ```
 
 ## Configuration (Edit Before An Event)
@@ -141,6 +143,38 @@ To do a full factory reset without a serial cable:
 6. Release the button at any point before 5 seconds to abort — the badge boots normally.
 
 The reset only touches the `badge` namespace. System-level NVS (Wi-Fi credentials, BLE bonding) is preserved. For a true full-flash erase (e.g. recovering from a bricked sketch), see `troubleshooting.md`.
+
+## HTTP Endpoints
+
+All routes are served from `http://192.168.4.1/` while connected to the badge's `AI-BADGE` Wi-Fi network.
+
+| Method | Path                  | Auth                  | What it does |
+| ------ | --------------------- | --------------------- | ------------ |
+| GET    | `/`                   | none                  | Badge home page (identity, mesh game, Nearby Badges, Recent Activity, reaction buttons, contact form, controls) |
+| GET    | `/trigger?fx=<name>`  | none                  | Fires a reaction effect: `packet`, `linkup`, `ai`, `storm`, `github`, `linkedin` |
+| POST   | `/contact`            | none                  | Submits a contact card (name / contact / note) and adds +3 packets |
+| GET    | `/next`               | none                  | Cycles to the next idle pattern |
+| GET    | `/brightness?b=<n>`   | none                  | Sets LED brightness (clamped 5–120) |
+| GET    | `/resetcount`         | none                  | Resets mesh score and peer count |
+| GET    | `/admin`              | none (login page)     | Owner login form for the contacts admin page |
+| GET    | `/admin/key`          | BOOT button held      | Returns the active admin key in plain text only while BOOT is pressed |
+| GET    | `/contacts?key=`      | admin key             | HTML list of stored contacts |
+| GET    | `/contacts.csv?key=`  | admin key             | CSV download of stored contacts |
+| GET    | `/clearcontacts?key=` | admin key             | Wipes all stored contacts |
+
+The badge also intercepts the standard Apple, Android, and Windows captive-portal probe URLs and redirects them to the home page.
+
+## USB Serial Commands
+
+Open a serial terminal at **115200 baud** and type one of these commands followed by Enter.
+
+| Command | What it does |
+| ------- | ------------ |
+| `setkey=<value>` | Stores `<value>` as the custom admin key in NVS and prints confirmation. Empty values are rejected. |
+| `clearkey` | Removes the custom admin key and reverts to the MAC-derived default. Prints the new active key. |
+| `factoryreset` | Wipes the entire `badge` NVS namespace and reboots the badge. |
+
+Unknown lines are ignored silently. Lines longer than 96 bytes are truncated at the next newline.
 
 ## Where Things Live
 
