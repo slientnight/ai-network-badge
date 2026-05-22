@@ -387,7 +387,6 @@ void processSerialLine(String line) {
     consoleLog("Unknown command: " + line);
   }
 }
-}
 
 bool adminAllowed() {
   return server.hasArg("key") && server.arg("key") == activeAdminKey;
