@@ -18,7 +18,7 @@
 
 // ---- Change these before taking the badge to an event ----------------------
 //   BADGE_OWNER, BADGE_TITLE, LINKEDIN_URL, GITHUB_URL,
-//   BLE_BADGE_NAME, BLE_BADGE_PREFIX
+//   AP_SSID_OVERRIDE, BLE_BADGE_NAME_OVERRIDE, BLE_BADGE_PREFIX
 // ----------------------------------------------------------------------------
 
 // Display name shown on the badge web page ("Hi, I'm <BADGE_OWNER>").
@@ -34,16 +34,20 @@ const char* LINKEDIN_URL = "https://www.linkedin.com/in/marshall-hollis";
 const char* GITHUB_URL   = "https://github.com/slientnight";
 
 // Local BLE advertising name. Other badges look for this when scanning peers.
-const char* BLE_BADGE_NAME   = "AI-BADGE-MARSHALL";
+// Leave empty ("") to auto-generate from the chip MAC as AI-BADGE-XXXX.
+const char* BLE_BADGE_NAME_OVERRIDE = "";
 
 // Prefix used to detect peer badges during BLE scans. Names starting with
-// this prefix (and not equal to BLE_BADGE_NAME) are counted as peers.
+// this prefix (and not equal to the active BLE name) are counted as peers.
 const char* BLE_BADGE_PREFIX = "AI-BADGE";
 
 // Local hostname advertised over mDNS / Bonjour. Used as `<host>.local` from
 // devices on the badge AP. ESPmDNS expects the bare label without the .local
 // suffix.
 const char* MDNS_HOSTNAME = "badge";
+
+// Wi-Fi AP SSID. Leave empty ("") to auto-generate as AI-BADGE-XXXX from chip MAC.
+const char* AP_SSID_OVERRIDE = "";
 
 // =============================================================================
 // END CONFIG
@@ -56,7 +60,6 @@ const char* MDNS_HOSTNAME = "badge";
 #define BOOT_BUTTON 9
 #define NUM_LEDS 8   // Badge LED count.
 
-const char* AP_SSID = "AI-BADGE";
 const char* AP_PASS = "";  // Open Wi-Fi network, no password.
 
 const uint8_t MAX_CONTACTS = 25;
@@ -138,6 +141,8 @@ unsigned long reactionStart = 0;
 String lastSignal = "None yet";
 
 String activeAdminKey = "";
+String activeApSsid = "";
+String activeBleName = "";
 ActivityEntry activityBuffer[ACTIVITY_BUFFER_SIZE];
 uint8_t activityHead = 0;
 uint8_t activityCount = 0;
@@ -304,6 +309,26 @@ String macDerivedAdminKey() {
   return String(key);
 }
 
+String macDerivedSuffix() {
+  // Same last-2-bytes-of-MAC approach used for the admin key, uppercased for
+  // readability in SSIDs and BLE names.
+  uint8_t mac[8] = {0};
+  esp_efuse_mac_get_default(mac);
+  char suffix[5];
+  snprintf(suffix, sizeof(suffix), "%02X%02X", mac[4], mac[5]);
+  return String(suffix);
+}
+
+String resolveApSsid() {
+  if (strlen(AP_SSID_OVERRIDE) > 0) return String(AP_SSID_OVERRIDE);
+  return "AI-BADGE-" + macDerivedSuffix();
+}
+
+String resolveBleName() {
+  if (strlen(BLE_BADGE_NAME_OVERRIDE) > 0) return String(BLE_BADGE_NAME_OVERRIDE);
+  return "AI-BADGE-" + macDerivedSuffix();
+}
+
 String loadActiveAdminKey() {
   String stored = prefs.getString("adminKey", "");
   if (stored.length() > 0) {
@@ -410,7 +435,7 @@ bool peerAlreadySeen(String peerName) {
 
 void rememberPeer(String peerName, int8_t rssi) {
   if (peerName.length() == 0) return;
-  if (peerName == String(BLE_BADGE_NAME)) return;
+  if (peerName == activeBleName) return;
   if (!peerName.startsWith(BLE_BADGE_PREFIX)) return;
 
   // Repeat sighting — update rssiLast and lastSeenMs only.
@@ -458,10 +483,10 @@ class BadgeAdvertisedDeviceCallbacks : public NimBLEScanCallbacks {
 };
 
 void startBlePresence() {
-  NimBLEDevice::init(BLE_BADGE_NAME);
+  NimBLEDevice::init(activeBleName.c_str());
 
   NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
-  advertising->setName(BLE_BADGE_NAME);
+  advertising->setName(activeBleName.c_str());
   advertising->enableScanResponse(true);
   NimBLEDevice::startAdvertising();
 
@@ -840,9 +865,9 @@ String htmlPage() {
   html += "<a class='secondary' href='/admin'>Owner: View Contacts</a>";
   html += "<a class='secondary' href='/admin?next=/console'>Owner: Console</a>";
 
-  html += "<p class='small'>BLE presence: <b>" + String(BLE_BADGE_NAME) + "</b>. Nearby AI badges count as peers.</p>";
+  html += "<p class='small'>BLE presence: <b>" + activeBleName + "</b>. Nearby AI badges count as peers.</p>";
   html += "<p class='small'>Admin: <b>/contacts?key=YOUR_KEY</b> and <b>/contacts.csv?key=YOUR_KEY</b></p>";
-  html += "<p class='small'>Wi-Fi: <b>" + String(AP_SSID) + "</b><br>";
+  html += "<p class='small'>Wi-Fi: <b>" + activeApSsid + "</b><br>";
   html += "Open network, no password required.<br>";
   html += "This page should open automatically after joining Wi-Fi.<br>";
   html += "If not, open: <b>http://192.168.4.1</b> or <b>http://" + String(MDNS_HOSTNAME) + ".local</b></p>";
@@ -1327,6 +1352,8 @@ void setup() {
 
   loadSettings();
   activeAdminKey = loadActiveAdminKey();
+  activeApSsid = resolveApSsid();
+  activeBleName = resolveBleName();
 
   pixels.begin();
   pixels.setBrightness(brightness);
@@ -1337,7 +1364,7 @@ void setup() {
 
   WiFi.mode(WIFI_AP);
   WiFi.softAPConfig(apIP, apIP, netMsk);
-  WiFi.softAP(AP_SSID);
+  WiFi.softAP(activeApSsid.c_str());
 
   dnsServer.start(DNS_PORT, "*", apIP);
 
@@ -1384,7 +1411,7 @@ void setup() {
   Serial.println();
   Serial.println("I NETWORK WITH AI badge started");
   Serial.print("Connect to Wi-Fi: ");
-  Serial.println(AP_SSID);
+  Serial.println(activeApSsid);
     Serial.print("Open: http://");
   Serial.println(WiFi.softAPIP());
   Serial.print("Or try: http://");
