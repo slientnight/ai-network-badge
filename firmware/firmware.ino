@@ -107,8 +107,8 @@ WebServer server(80);
 DNSServer dnsServer;
 Preferences prefs;
 
-uint8_t brightness = 32;
-uint8_t idlePattern = 0;
+uint8_t brightness = 16;
+uint8_t idlePattern = 2;
 uint32_t packetCount = 0;
 uint32_t contactPacketCount = 0;
 uint32_t peerSeenCount = 0;
@@ -230,8 +230,8 @@ void saveSettings() {
 }
 
 void loadSettings() {
-  brightness = prefs.getUChar("brightness", 32);
-  idlePattern = prefs.getUChar("idlePattern", 0);
+  brightness = prefs.getUChar("brightness", 16);
+  idlePattern = prefs.getUChar("idlePattern", 2);
   packetCount = prefs.getUInt("packetCount", 0);
   contactPacketCount = prefs.getUInt("contactCount", 0);
   peerSeenCount = prefs.getUInt("peerSeen", 0);
