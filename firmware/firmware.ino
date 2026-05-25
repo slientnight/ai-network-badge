@@ -58,7 +58,7 @@ const char* AP_SSID_OVERRIDE = "";
 // =============================================================================
 #define LED_PIN 4
 #define BOOT_BUTTON 9
-#define NUM_LEDS 8   // Badge LED count.
+#define NUM_LEDS 4   // Badge LED count.
 
 const char* AP_PASS = "";  // Open Wi-Fi network, no password.
 
