@@ -1,28 +1,26 @@
 # AI Network Badge
 
 <p align="center">
-  <img src="cricut/badge_preview.png" alt="AI Network Badge front: I NETWORK / WITH AI / BUILD THE MESH text with copper traces and 8 LED node rings on a dark circular background" width="360">
+  <img src="cricut/badge_preview.png" alt="AI Network Badge front: I NETWORK / WITH AI / BUILD THE MESH text with copper traces and LED node rings on a dark circular background" width="360">
 </p>
 
-A self-contained ESP32-C3 conference badge. It hosts an open Wi-Fi captive portal so anyone who joins gets the badge web page automatically, drives an 8-pixel NeoPixel strip with four idle animations and seven scripted reaction effects, runs the "Build the Mesh" packet game with persistent score and level-ups, accepts contact card submissions through a web form and stores them in NVS, and quietly scans for nearby badges over BLE so two attendees with badges greet each other with a link-up animation.
+A self-contained ESP32-C3 conference badge. It hosts an open Wi-Fi captive portal so anyone who joins gets the badge web page automatically, drives a 4-pixel NeoPixel strip with four idle animations and seven scripted reaction effects, runs the "Build the Mesh" packet game with persistent score and level-ups, accepts contact card submissions through a web form and stores them in NVS, and quietly scans for nearby badges over BLE so two attendees with badges greet each other with a link-up animation.
 
 ## Features
 
-- Open Wi-Fi SoftAP `AI-BADGE` with full captive portal (auto-launches the page on iOS, Android, and Windows).
-- 8-pixel NeoPixel strip on GPIO 4 with four idle patterns: Packet Chase, AI Pulse, Network Sparkle, Rainbow Mesh.
+- Open Wi-Fi SoftAP with a per-badge unique SSID (e.g. `AI-BADGE-A3F7`) derived from the chip MAC, with full captive portal (auto-launches the page on iOS, Android, and Windows).
+- 4-pixel NeoPixel strip on GPIO 4 with four idle patterns: Packet Chase, AI Pulse, Network Sparkle (default), Rainbow Mesh.
 - Seven reaction effects: PACKET, LINKUP, AI, STORM, GITHUB, LINKEDIN, CONTACT (4.5 s each).
 - "Build the Mesh" game with levels Offline Node → Listening Node → Linked Node → Mesh Builder → AI Router → Supernode and a STORM celebration on every threshold cross.
 - Contact card form (name / contact / note), input-sanitized and stored in NVS, capped at 25 entries, worth 3 packets per submission.
-- BLE peer discovery: advertises as `AI-BADGE-MARSHALL`, scans every 20 s for 3 s, dedupes peers whose name starts with `AI-BADGE`, triggers LINKUP on a new peer.
+- BLE peer discovery: advertises with a per-badge unique name (e.g. `AI-BADGE-A3F7`) derived from the chip MAC, scans every 20 s for 3 s, dedupes peers whose name starts with `AI-BADGE`, triggers LINKUP on a new peer.
 - **Nearby Badges** section on the home page: each remembered peer shown with friendly RSSI label (Near / Far / Distant) plus raw dBm and first-seen relative time.
 - **Recent Activity** feed on the home page: last 8 events (reactions, contacts, peer discoveries, level-ups) shown newest-first with relative timestamps. Volatile in RAM.
-- **Per-badge admin key**: each badge boots with a 4-character hex key derived from the last 2 bytes of its chip MAC. Optionally override it via NVS using the USB Serial console (`setkey=<value>` / `clearkey`). Reveal the active key from the web UI at `/admin/key` only while the BOOT button is physically held.
+- **Per-badge unique identifiers**: the Wi-Fi SSID, BLE advertising name, and admin key are all derived from the chip's burned-in MAC address. Every badge is unique out of the box — no configuration needed. Override any of them in the CONFIG block (see code comments for details).
 - **Owner login page** at `/admin`: friendly password prompt that sends the owner to the contacts admin page or the web console, depending on the `?next=` target. Tapped from the home page **Owner: View Contacts** and **Owner: Console** buttons. Wrong key bounces back with an inline error.
 - **Web console** at `/console`: terminal-styled page for running USB-serial commands (`setkey=`, `clearkey`, `factoryreset`) over Wi-Fi. Reuses the same command parser as the USB serial console. Gated by the active admin key — visiting the URL without a key sends the user through the `/admin` login flow first.
 - **Factory reset**: type `factoryreset` over USB serial, or hold the BOOT button while plugging in USB for 5 seconds, to wipe the entire NVS namespace `badge` and reboot.
 - **Friendly hostname**: the badge advertises itself over mDNS as `badge.local` so visitors can type that instead of `192.168.4.1`. Works on macOS, iOS, and modern Android — falls back to the captive portal otherwise.
-
-This is mostly a fun side project, but also a great way to spark conversations with new people around networking, AI, and other interesting tech topics. Looking forward to seeing where it goes. as `badge.local` so visitors can type that instead of `192.168.4.1`. Works on macOS, iOS, and modern Android — falls back to the captive portal otherwise.
 - BOOT button (GPIO 9) cycles idle patterns.
 - Persistent settings (brightness, idle pattern, packet count, contact count, peer count) survive reboot via NVS namespace `badge`.
 - Admin endpoints for listing, exporting (CSV), and clearing contacts, gated by the active per-badge admin key.
@@ -64,16 +62,23 @@ troubleshooting.md
 
 ## Configuration (Edit Before An Event)
 
-Open `firmware/firmware.ino` and find the `CONFIG` block at the top of the file (between the `CONFIG — Edit values in this block to personalize the badge.` and `END CONFIG` banner comments). Update these six constants before handing the badge out:
+Open `firmware/firmware.ino` and find the `CONFIG` block at the top of the file (between the `CONFIG — Edit values in this block to personalize the badge.` and `END CONFIG` banner comments). Update these constants before handing the badge out:
 
 - `BADGE_OWNER` — name shown on the badge web page.
 - `BADGE_TITLE` — subtitle / role line under the owner name.
 - `LINKEDIN_URL` — link for the "Connect on LinkedIn" button.
 - `GITHUB_URL` — link for the "View GitHub" button.
-- `BLE_BADGE_NAME` — local BLE advertising name; peers look for badges starting with the prefix below.
+- `BLE_BADGE_NAME_OVERRIDE` — custom BLE advertising name. Leave empty (`""`) to auto-generate a unique name from the chip MAC (e.g. `AI-BADGE-A3F7`).
 - `BLE_BADGE_PREFIX` — prefix used to detect peer badges during BLE scans.
+- `AP_SSID_OVERRIDE` — custom Wi-Fi SSID. Leave empty (`""`) to auto-generate from the chip MAC (e.g. `AI-BADGE-A3F7`).
 
 Everything below the `END CONFIG` banner is implementation and shouldn't need editing.
+
+### Per-Badge Unique Identifiers (No Edit Needed)
+
+By default, both the Wi-Fi SSID and BLE advertising name are automatically derived from the chip's burned-in MAC address — the last 2 bytes formatted as 4 uppercase hex characters, appended to `AI-BADGE-`. This means every badge gets a unique network name out of the box with no configuration required.
+
+To override either value with a custom string, set `AP_SSID_OVERRIDE` or `BLE_BADGE_NAME_OVERRIDE` in the CONFIG block. See the code comments for details.
 
 ### Admin Key (No Edit Needed)
 
@@ -99,8 +104,9 @@ The override is stored in NVS and survives reboots until you `clearkey` it. Ther
 
 1. Open `firmware/firmware.ino`.
 2. Tools → Board → select your target (`XIAO_ESP32C3` or `ESP32C3 Dev Module`).
-3. Tools → Port → select the COM port the badge enumerated as.
-4. Click Upload.
+3. Tools → Partition Scheme → select **Huge APP (3MB No OTA/1MB SPIFFS)**. The firmware with NimBLE exceeds the default partition size.
+4. Tools → Port → select the COM port the badge enumerated as.
+5. Click Upload.
 
 ### Arduino CLI
 
@@ -108,7 +114,7 @@ The override is stored in NVS and survives reboots until you `clearkey` it. Ther
 arduino-cli core install esp32:esp32
 arduino-cli lib install "Adafruit NeoPixel"
 arduino-cli lib install "NimBLE-Arduino"
-arduino-cli compile --fqbn esp32:esp32:esp32c3 firmware
+arduino-cli compile --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app firmware
 arduino-cli upload --fqbn esp32:esp32:esp32c3 -p COM3 firmware
 ```
 
@@ -118,7 +124,7 @@ Replace `COM3` with the actual port on your system (e.g. `/dev/ttyUSB0` on Linux
 
 - Power the badge over USB.
 - Open a serial terminal at 115200 baud and note the **active admin key** printed in the boot banner. It looks like `Admin contacts: http://192.168.4.1/contacts?key=cd34`.
-- Look for Wi-Fi network `AI-BADGE` (open, no password) on your phone or laptop.
+- Look for the badge's Wi-Fi network on your phone or laptop. It will be named `AI-BADGE-XXXX` where XXXX is derived from the chip MAC (open, no password). The exact name is printed to the serial console at boot.
 - Joining should auto-launch the badge page; if not, open `http://192.168.4.1` or `http://badge.local` in any browser.
 - Confirm the new home-page sections render: **Nearby Badges** (empty until a second badge appears) and **Recent Activity** (should show the boot reaction shortly after).
 - Try the LED reaction buttons (Send Packet, Establish Link, etc.) and watch the strip respond and the activity feed update.
@@ -152,7 +158,7 @@ The reset only touches the `badge` namespace. System-level NVS (Wi-Fi credential
 
 ## HTTP Endpoints
 
-All routes are served from `http://192.168.4.1/` while connected to the badge's `AI-BADGE` Wi-Fi network.
+All routes are served from `http://192.168.4.1/` while connected to the badge's Wi-Fi network (named `AI-BADGE-XXXX` where XXXX is the MAC-derived suffix).
 
 | Method | Path                  | Auth                  | What it does |
 | ------ | --------------------- | --------------------- | ------------ |
