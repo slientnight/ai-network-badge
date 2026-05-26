@@ -10,6 +10,7 @@
 #include <NimBLEDevice.h>
 #include <esp_mac.h>
 #include <math.h>
+#include "driver/temperature_sensor.h"
 
 // =============================================================================
 // CONFIG — Edit values in this block to personalize the badge.
@@ -129,6 +130,7 @@ uint32_t peerSeenCount = 0;
 
 NimBLEScan* bleScan = nullptr;
 NimBLECharacteristic* scoreCharacteristic = nullptr;
+temperature_sensor_handle_t tempSensor = NULL;
 unsigned long lastBleScan = 0;
 
 PeerRecord seenPeers[MAX_SEEN_PEERS];
@@ -372,6 +374,18 @@ String rssiLabel(int8_t rssi) {
   if (rssi >= -60) return "Near";
   if (rssi >= -80) return "Far";
   return "Distant";
+}
+
+float readChipTempC() {
+  float t = 0.0;
+  if (tempSensor != NULL) {
+    temperature_sensor_get_celsius(tempSensor, &t);
+  }
+  return t;
+}
+
+float celsiusToFahrenheit(float c) {
+  return c * 9.0 / 5.0 + 32.0;
 }
 
 void addActivity(ActivityCategory category, String label) {
@@ -875,6 +889,7 @@ String htmlPage() {
   String html = "";
 
   html += "<!doctype html><html><head>";
+  html += "<meta charset='utf-8'>";
   html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
   html += "<title>I Network With AI</title>";
 
@@ -1065,6 +1080,8 @@ String htmlPage() {
   html += "<a class='secondary' href='/admin?next=/console'>Owner: Console</a>";
 
   html += "<p class='small'>BLE presence: <b>" + activeBleName + "</b>. Nearby AI badges count as peers.</p>";
+  float chipTemp = readChipTempC();
+  html += "<p class='small'>CPU temp: <b>" + String(celsiusToFahrenheit(chipTemp), 1) + " &deg;F</b> (" + String(chipTemp, 1) + " &deg;C)</p>";
   html += "<p class='small'>Admin: <b>/contacts?key=YOUR_KEY</b> and <b>/contacts.csv?key=YOUR_KEY</b></p>";
   html += "<p class='small'>Wi-Fi: <b>" + activeApSsid + "</b><br>";
   html += "Open network, no password required.<br>";
@@ -1553,6 +1570,11 @@ void setup() {
   activeAdminKey = loadActiveAdminKey();
   activeApSsid = resolveApSsid();
   activeBleName = resolveBleName();
+
+  // Internal temperature sensor (die temp, not ambient).
+  temperature_sensor_config_t tempCfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
+  temperature_sensor_install(&tempCfg, &tempSensor);
+  temperature_sensor_enable(tempSensor);
 
   pixels.begin();
   pixels.setBrightness(brightness);
