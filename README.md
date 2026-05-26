@@ -1,7 +1,7 @@
 # AI Network Badge
 
 <p align="center">
-  <img src="cricut/badge_preview.png" alt="AI Network Badge front: I NETWORK / WITH AI / BUILD THE MESH text with copper traces and LED node rings on a dark circular background" width="360">
+  <img src="badge_photo.jpeg" alt="AI Network Badge: round acrylic disc with holographic I NETWORK WITH AI text and blue LEDs, clipped to a lanyard" width="360">
 </p>
 
 A self-contained ESP32-C3 conference badge. It hosts an open Wi-Fi captive portal so anyone who joins gets the badge web page automatically, drives a 4-pixel NeoPixel strip with four idle animations and seven scripted reaction effects, runs the "Build the Mesh" packet game with persistent score and level-ups, accepts contact card submissions through a web form and stores them in NVS, and quietly scans for nearby badges over BLE so two attendees with badges greet each other with a link-up animation.
@@ -14,13 +14,17 @@ A self-contained ESP32-C3 conference badge. It hosts an open Wi-Fi captive porta
 - "Build the Mesh" game with levels Offline Node → Listening Node → Linked Node → Mesh Builder → AI Router → Supernode and a STORM celebration on every threshold cross.
 - Contact card form (name / contact / note), input-sanitized and stored in NVS, capped at 25 entries, worth 3 packets per submission.
 - BLE peer discovery: advertises with a per-badge unique name (e.g. `AI-BADGE-A3F7`) derived from the chip MAC, scans every 20 s for 3 s, dedupes peers whose name starts with `AI-BADGE`, triggers LINKUP on a new peer.
-- **Nearby Badges** section on the home page: each remembered peer shown with friendly RSSI label (Near / Far / Distant) plus raw dBm and first-seen relative time.
+- **Nearby Badges** section on the home page: shows active peers (seen in the last 60 s) with RSSI label and last-seen time. Stale peers are dimmed and grouped under "Previously seen."
+- **Mesh Leaderboard** on the home page: ranks this badge and all nearby peers by packet count via BLE GATT score sync. Peers exchange scores automatically every 45 s.
+- **Peer-aware idle mode**: when at least one BLE peer is nearby, LED 0 pulses a subtle green accent on top of the active idle pattern — a passive "you're not alone" indicator.
 - **Recent Activity** feed on the home page: last 8 events (reactions, contacts, peer discoveries, level-ups) shown newest-first with relative timestamps. Volatile in RAM.
 - **Per-badge unique identifiers**: the Wi-Fi SSID, BLE advertising name, and admin key are all derived from the chip's burned-in MAC address. Every badge is unique out of the box — no configuration needed. Override any of them in the CONFIG block (see code comments for details).
 - **Owner login page** at `/admin`: friendly password prompt that sends the owner to the contacts admin page or the web console, depending on the `?next=` target. Tapped from the home page **Owner: View Contacts** and **Owner: Console** buttons. Wrong key bounces back with an inline error.
 - **Web console** at `/console`: terminal-styled page for running USB-serial commands (`setkey=`, `clearkey`, `factoryreset`) over Wi-Fi. Reuses the same command parser as the USB serial console. Gated by the active admin key — visiting the URL without a key sends the user through the `/admin` login flow first.
 - **Factory reset**: type `factoryreset` over USB serial, or hold the BOOT button while plugging in USB for 5 seconds, to wipe the entire NVS namespace `badge` and reboot.
 - **Friendly hostname**: the badge advertises itself over mDNS as `badge.local` so visitors can type that instead of `192.168.4.1`. Works on macOS, iOS, and modern Android — falls back to the captive portal otherwise.
+- **CPU die temperature** shown on the web page in °F and °C (internal sensor, not ambient — useful for diagnostics).
+- **Underclocked to 80 MHz** to reduce power draw and die temperature. 80 MHz is the minimum for Wi-Fi; all badge functions remain unaffected.
 - BOOT button (GPIO 9) cycles idle patterns.
 - Persistent settings (brightness, idle pattern, packet count, contact count, peer count) survive reboot via NVS namespace `badge`.
 - Admin endpoints for listing, exporting (CSV), and clearing contacts, gated by the active per-badge admin key.
@@ -190,6 +194,14 @@ Open a serial terminal at **115200 baud** and type one of these commands followe
 The same commands also work from the **web console** at `http://192.168.4.1/console` (or `http://badge.local/console`) without a USB cable. The web console gates on the active admin key and reuses the same command parser; output is mirrored to a small in-memory log shown on the page. From the home page, tap **Owner: Console** to get there through the login form.
 
 Unknown commands are echoed as `Unknown command: <line>` so typos are visible. Lines longer than 96 bytes are truncated at the next newline.
+
+## Technical Notes
+
+- **Partition scheme**: You must select **Huge APP (3MB No OTA/1MB SPIFFS)** in Arduino IDE (or pass `PartitionScheme=huge_app` via CLI). The firmware with NimBLE exceeds the default partition size.
+- **CPU frequency**: The badge runs at 80 MHz (set via `setCpuFrequencyMhz(80)` in `setup()`). This is the minimum clock that supports Wi-Fi and cuts die temperature significantly. If you need more CPU headroom for custom additions, you can change this to 160 MHz.
+- **BLE GATT leaderboard**: Each badge exposes its packet count as a readable BLE characteristic. Nearby badges connect as GATT clients to read each other's scores. This happens in a round-robin fashion (one peer every ~10 s) to avoid blocking the main loop.
+- **Peer timeout**: A peer is considered "nearby" if it was seen in the last 60 seconds (roughly 3 BLE scan cycles). After that it fades from the leaderboard and the Nearby Badges active list.
+- **Die temperature**: The CPU temp shown on the web page is the chip's internal sensor, not ambient. Typical values are 30–50°C depending on activity. It's useful for confirming the underclock is working.
 
 ## Where Things Live
 
