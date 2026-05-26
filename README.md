@@ -109,7 +109,7 @@ The override is stored in NVS and survives reboots until you `clearkey` it. Ther
 1. Open `firmware/firmware.ino`.
 2. Tools → Board → select your target (`XIAO_ESP32C3` or `ESP32C3 Dev Module`).
 3. Tools → Partition Scheme → select **Huge APP (3MB No OTA/1MB SPIFFS)**. The firmware with NimBLE exceeds the default partition size.
-4. Tools → USB CDC On Boot → **Enabled**. Without this, `Serial` output goes to the hardware UART pins instead of the USB port, and you won't see anything in the serial monitor.
+4. **ESP32C3 Dev Module only**: Tools → USB CDC On Boot → **Enabled**. Without this, `Serial` output goes to the hardware UART pins instead of the USB port, and you won't see anything in the serial monitor. (The XIAO_ESP32C3 board profile handles this automatically.)
 5. Tools → Port → select the COM port the badge enumerated as.
 6. Click Upload.
 
