@@ -374,8 +374,10 @@ String relativeTimeString(unsigned long pastMs) {
 }
 
 String rssiLabel(int8_t rssi) {
+  if (rssi >= -40) return "Adjacent";
   if (rssi >= -60) return "Near";
-  if (rssi >= -80) return "Far";
+  if (rssi >= -80) return "Close";
+  if (rssi >= -90) return "Far";
   return "Distant";
 }
 
