@@ -1521,6 +1521,7 @@ void checkButton() {
 // =============================================================================
 
 void setup() {
+  setCpuFrequencyMhz(80);  // Underclock to reduce power and die temp; 80 MHz is the minimum for Wi-Fi.
   Serial.begin(115200);
   delay(300);
 
