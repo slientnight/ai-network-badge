@@ -66,6 +66,10 @@ const uint8_t MAX_CONTACTS = 25;
 const uint8_t CONTACT_PACKET_VALUE = 3;
 
 const unsigned long BLE_SCAN_INTERVAL_MS = 20000;
+
+// How recently a peer must have been seen (via BLE scan) to count as "nearby"
+// for the peer-aware idle accent. Two scan intervals plus margin.
+const unsigned long PEER_NEARBY_TIMEOUT_MS = 60000;
 const uint32_t BLE_SCAN_SECONDS = 3;
 const uint8_t MAX_SEEN_PEERS = 12;
 const unsigned long REACTION_MS = 4500;
@@ -567,6 +571,16 @@ void idleRainbowMesh() {
   }
 }
 
+bool peersNearby() {
+  unsigned long now = millis();
+  for (uint8_t i = 0; i < seenPeerSlots; i++) {
+    if (now - seenPeers[i].lastSeenMs < PEER_NEARBY_TIMEOUT_MS) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void renderIdle() {
   switch (idlePattern) {
     case 0:
@@ -585,6 +599,21 @@ void renderIdle() {
       idlePattern = 0;
       idlePacketChase();
       break;
+  }
+
+  // Peer-aware accent: when at least one BLE peer is nearby, overlay a gentle
+  // green pulse on LED 0 so the badge owner has a passive "you're not alone"
+  // indicator without needing to check the web page.
+  if (peersNearby()) {
+    float pulse = (sin(frame * 0.08) + 1.0) * 0.5;  // 0.0 – 1.0
+    uint8_t g = (uint8_t)(40 + pulse * 60);          // 40 – 100 green
+    uint32_t current = pixels.getPixelColor(0);
+    uint8_t r = (current >> 16) & 0xFF;
+    uint8_t b = current & 0xFF;
+    // Blend: keep existing red/blue, boost green channel
+    uint8_t existingG = (current >> 8) & 0xFF;
+    uint8_t blendedG = existingG > g ? existingG : g;
+    pixels.setPixelColor(0, pixels.Color(r, blendedG, b));
   }
 }
 
