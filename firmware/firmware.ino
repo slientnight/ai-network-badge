@@ -938,10 +938,31 @@ String htmlPage() {
   if (seenPeerSlots == 0) {
     html += "<p class='small'>No peers seen yet.</p>";
   } else {
+    uint8_t activeCount = 0;
+    uint8_t staleCount = 0;
+    // Show active peers first (seen within timeout).
     for (uint8_t i = 0; i < seenPeerSlots; i++) {
-      html += "<p><b>" + escapeHtml(seenPeers[i].name) + "</b> ";
-      html += "<span class='pill'>" + rssiLabel(seenPeers[i].rssiLast) + " (" + String(seenPeers[i].rssiLast) + " dBm)</span> ";
-      html += "<span class='small'>" + relativeTimeString(seenPeers[i].firstSeenMs) + "</span></p>";
+      if (millis() - seenPeers[i].lastSeenMs < PEER_NEARBY_TIMEOUT_MS) {
+        html += "<p><b>" + escapeHtml(seenPeers[i].name) + "</b> ";
+        html += "<span class='pill'>" + rssiLabel(seenPeers[i].rssiLast) + " (" + String(seenPeers[i].rssiLast) + " dBm)</span> ";
+        html += "<span class='small'>" + relativeTimeString(seenPeers[i].lastSeenMs) + "</span></p>";
+        activeCount++;
+      } else {
+        staleCount++;
+      }
+    }
+    if (activeCount == 0) {
+      html += "<p class='small'>No peers in range right now.</p>";
+    }
+    // Show stale peers dimmed.
+    if (staleCount > 0) {
+      html += "<p class='small' style='margin-top:12px;color:#667'>Previously seen:</p>";
+      for (uint8_t i = 0; i < seenPeerSlots; i++) {
+        if (millis() - seenPeers[i].lastSeenMs >= PEER_NEARBY_TIMEOUT_MS) {
+          html += "<p style='opacity:0.5'><b>" + escapeHtml(seenPeers[i].name) + "</b> ";
+          html += "<span class='small'>last seen " + relativeTimeString(seenPeers[i].lastSeenMs) + "</span></p>";
+        }
+      }
     }
   }
   html += "</div>";
