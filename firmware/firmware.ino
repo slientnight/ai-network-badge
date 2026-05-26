@@ -50,6 +50,9 @@ const char* MDNS_HOSTNAME = "badge";
 // Wi-Fi AP SSID. Leave empty ("") to auto-generate as AI-BADGE-XXXX from chip MAC.
 const char* AP_SSID_OVERRIDE = "";
 
+// Debug flags — set to 1 to enable, 0 to disable (compiled out entirely).
+#define DEBUG_BLE_RSSI 0  // Print peer RSSI to serial on every BLE sighting.
+
 // =============================================================================
 // END CONFIG
 // =============================================================================
@@ -477,6 +480,12 @@ void rememberPeer(String peerName, int8_t rssi) {
     if (seenPeers[i].name == peerName) {
       seenPeers[i].rssiLast = rssi;
       seenPeers[i].lastSeenMs = millis();
+#if DEBUG_BLE_RSSI
+      Serial.print("[BLE] ");
+      Serial.print(peerName);
+      Serial.print(" rssi=");
+      Serial.println(rssi);
+#endif
       return;
     }
   }
@@ -499,6 +508,12 @@ void rememberPeer(String peerName, int8_t rssi) {
 
   peerSeenCount++;
   lastSignal = "Peer found: " + peerName;
+#if DEBUG_BLE_RSSI
+  Serial.print("[BLE] NEW ");
+  Serial.print(peerName);
+  Serial.print(" rssi=");
+  Serial.println(rssi);
+#endif
   saveSettings();
 
   activeReaction = REACTION_LINKUP;
