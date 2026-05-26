@@ -70,6 +70,14 @@ const unsigned long BLE_SCAN_INTERVAL_MS = 20000;
 // How recently a peer must have been seen (via BLE scan) to count as "nearby"
 // for the peer-aware idle accent. Two scan intervals plus margin.
 const unsigned long PEER_NEARBY_TIMEOUT_MS = 60000;
+
+// How often to re-fetch a peer's score via GATT (avoid hammering connections).
+const unsigned long SCORE_FETCH_INTERVAL_MS = 45000;
+
+// BLE GATT UUIDs for the badge leaderboard service.
+// Service: exposes the badge's mesh packet count to nearby peers.
+#define BADGE_SERVICE_UUID        "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+#define BADGE_SCORE_CHAR_UUID     "a1b2c3d4-e5f6-7890-abcd-ef1234567891"
 const uint32_t BLE_SCAN_SECONDS = 3;
 const uint8_t MAX_SEEN_PEERS = 12;
 const unsigned long REACTION_MS = 4500;
@@ -91,6 +99,8 @@ struct PeerRecord {
   int8_t rssiLast;
   unsigned long firstSeenMs;
   unsigned long lastSeenMs;
+  uint32_t score;          // Peer's packet count (0 = not yet fetched)
+  unsigned long scoreFetchedMs;  // When we last read their score
 };
 
 enum ActivityCategory {
@@ -118,6 +128,7 @@ uint32_t contactPacketCount = 0;
 uint32_t peerSeenCount = 0;
 
 NimBLEScan* bleScan = nullptr;
+NimBLECharacteristic* scoreCharacteristic = nullptr;
 unsigned long lastBleScan = 0;
 
 PeerRecord seenPeers[MAX_SEEN_PEERS];
@@ -231,6 +242,11 @@ void saveSettings() {
   prefs.putUInt("packetCount", packetCount);
   prefs.putUInt("contactCount", contactPacketCount);
   prefs.putUInt("peerSeen", peerSeenCount);
+
+  // Keep the GATT characteristic in sync so peers read the latest score.
+  if (scoreCharacteristic != nullptr) {
+    scoreCharacteristic->setValue(packetCount);
+  }
 }
 
 void loadSettings() {
@@ -464,6 +480,8 @@ void rememberPeer(String peerName, int8_t rssi) {
   seenPeers[idx].rssiLast = rssi;
   seenPeers[idx].firstSeenMs = millis();
   seenPeers[idx].lastSeenMs = millis();
+  seenPeers[idx].score = 0;
+  seenPeers[idx].scoreFetchedMs = 0;
 
   peerSeenCount++;
   lastSignal = "Peer found: " + peerName;
@@ -489,8 +507,20 @@ class BadgeAdvertisedDeviceCallbacks : public NimBLEScanCallbacks {
 void startBlePresence() {
   NimBLEDevice::init(activeBleName.c_str());
 
+  // GATT server: expose our packet count so nearby badges can read it.
+  NimBLEServer* pServer = NimBLEDevice::createServer();
+  NimBLEService* pService = pServer->createService(BADGE_SERVICE_UUID);
+  scoreCharacteristic = pService->createCharacteristic(
+    BADGE_SCORE_CHAR_UUID,
+    NIMBLE_PROPERTY::READ
+  );
+  // Set initial value (4 bytes, little-endian uint32).
+  scoreCharacteristic->setValue(packetCount);
+  pService->start();
+
   NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
   advertising->setName(activeBleName.c_str());
+  advertising->addServiceUUID(BADGE_SERVICE_UUID);
   advertising->enableScanResponse(true);
   NimBLEDevice::startAdvertising();
 
@@ -507,8 +537,80 @@ void runBlePresenceScan() {
 
   lastBleScan = millis();
   bleScan->start(BLE_SCAN_SECONDS * 1000, false);
-  bleScan->clearResults();
+  // Don't clear results here — fetchPeerScore() needs them to find addresses.
   NimBLEDevice::startAdvertising();
+}
+
+// Attempt to connect to a peer badge and read its packet count via GATT.
+// Called from the main loop for one peer at a time to avoid blocking too long.
+void fetchPeerScore(uint8_t peerIdx) {
+  if (peerIdx >= seenPeerSlots) return;
+
+  PeerRecord& peer = seenPeers[peerIdx];
+
+  // Skip if we fetched recently.
+  if (peer.scoreFetchedMs > 0 && millis() - peer.scoreFetchedMs < SCORE_FETCH_INTERVAL_MS) return;
+
+  // Skip if peer hasn't been seen recently (probably out of range).
+  if (millis() - peer.lastSeenMs > PEER_NEARBY_TIMEOUT_MS) return;
+
+  // We need the peer's BLE address. NimBLE scan results are cleared, so we
+  // attempt a fresh scan result lookup. If unavailable, skip this cycle.
+  NimBLEAdvertisedDevice* device = nullptr;
+
+  // Do a quick scan to find the peer's address.
+  NimBLEScanResults results = bleScan->getResults();
+  for (int i = 0; i < results.getCount(); i++) {
+    const NimBLEAdvertisedDevice* d = results.getDevice(i);
+    if (d->haveName() && String(d->getName().c_str()) == peer.name) {
+      device = const_cast<NimBLEAdvertisedDevice*>(d);
+      break;
+    }
+  }
+
+  // If we can't find the device address, try connecting by running a short scan.
+  if (device == nullptr) return;
+
+  NimBLEClient* pClient = NimBLEDevice::createClient();
+  pClient->setConnectTimeout(3);
+
+  if (!pClient->connect(device)) {
+    NimBLEDevice::deleteClient(pClient);
+    return;
+  }
+
+  NimBLERemoteService* pService = pClient->getService(BADGE_SERVICE_UUID);
+  if (pService != nullptr) {
+    NimBLERemoteCharacteristic* pChar = pService->getCharacteristic(BADGE_SCORE_CHAR_UUID);
+    if (pChar != nullptr && pChar->canRead()) {
+      uint32_t remoteScore = pChar->getValue<uint32_t>();
+      peer.score = remoteScore;
+      peer.scoreFetchedMs = millis();
+    }
+  }
+
+  pClient->disconnect();
+  NimBLEDevice::deleteClient(pClient);
+
+  // Resume advertising after the client connection.
+  NimBLEDevice::startAdvertising();
+}
+
+// Called from loop() — fetches one peer's score per cycle to avoid blocking.
+void runLeaderboardSync() {
+  static uint8_t nextPeerToFetch = 0;
+  static unsigned long lastFetchAttempt = 0;
+
+  // Only attempt a fetch every 10 seconds to avoid thrashing BLE.
+  if (millis() - lastFetchAttempt < 10000) return;
+  if (seenPeerSlots == 0) return;
+
+  lastFetchAttempt = millis();
+
+  // Round-robin through peers.
+  if (nextPeerToFetch >= seenPeerSlots) nextPeerToFetch = 0;
+  fetchPeerScore(nextPeerToFetch);
+  nextPeerToFetch++;
 }
 
 // =============================================================================
@@ -841,6 +943,53 @@ String htmlPage() {
       html += "<span class='pill'>" + rssiLabel(seenPeers[i].rssiLast) + " (" + String(seenPeers[i].rssiLast) + " dBm)</span> ";
       html += "<span class='small'>" + relativeTimeString(seenPeers[i].firstSeenMs) + "</span></p>";
     }
+  }
+  html += "</div>";
+
+  // Mesh Leaderboard: show this badge + nearby peers ranked by packet count.
+  html += "<h2>Mesh Leaderboard</h2>";
+  html += "<div class='game'>";
+
+  // Build a simple sorted list of entries (this badge + peers with known scores).
+  // Using a lightweight insertion approach since MAX_SEEN_PEERS is small (12).
+  struct LeaderEntry { String name; uint32_t score; bool isLocal; };
+  LeaderEntry entries[MAX_SEEN_PEERS + 1];
+  uint8_t entryCount = 0;
+
+  // Add local badge.
+  entries[entryCount++] = { String(BADGE_OWNER) + " (you)", packetCount, true };
+
+  // Add peers that have a known score and were seen recently.
+  for (uint8_t i = 0; i < seenPeerSlots; i++) {
+    if (seenPeers[i].score > 0 && millis() - seenPeers[i].lastSeenMs < PEER_NEARBY_TIMEOUT_MS) {
+      entries[entryCount++] = { seenPeers[i].name, seenPeers[i].score, false };
+    }
+  }
+
+  // Simple insertion sort descending by score.
+  for (uint8_t i = 1; i < entryCount; i++) {
+    LeaderEntry temp = entries[i];
+    int j = i - 1;
+    while (j >= 0 && entries[j].score < temp.score) {
+      entries[j + 1] = entries[j];
+      j--;
+    }
+    entries[j + 1] = temp;
+  }
+
+  if (entryCount <= 1) {
+    html += "<p class='small'>Waiting for nearby badges to sync scores...</p>";
+  } else {
+    html += "<table><tr><th>#</th><th>Badge</th><th>Packets</th><th>Level</th></tr>";
+    for (uint8_t i = 0; i < entryCount; i++) {
+      html += "<tr";
+      if (entries[i].isLocal) html += " style='color:#7dffca;font-weight:bold'";
+      html += "><td>" + String(i + 1) + "</td>";
+      html += "<td>" + escapeHtml(entries[i].name) + "</td>";
+      html += "<td>" + String(entries[i].score) + "</td>";
+      html += "<td>" + badgeLevelNameForCount(entries[i].score) + "</td></tr>";
+    }
+    html += "</table>";
   }
   html += "</div>";
 
@@ -1470,6 +1619,7 @@ void loop() {
   dnsServer.processNextRequest();
   server.handleClient();
   runBlePresenceScan();
+  runLeaderboardSync();
   checkButton();
 
   if (millis() - lastFrame > 55) {
