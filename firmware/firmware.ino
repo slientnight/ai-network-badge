@@ -619,8 +619,11 @@ void fetchPeerScore(uint8_t peerIdx) {
   Serial.println(peer.name);
 #endif
 
+  // Stop scanning before connecting — NimBLE can't scan and connect simultaneously.
+  bleScan->stop();
+
   NimBLEClient* pClient = NimBLEDevice::createClient();
-  pClient->setConnectTimeout(3);
+  pClient->setConnectTimeout(10);  // 10 seconds — peers are often busy scanning.
 
   if (!pClient->connect(device)) {
 #if DEBUG_BLE_RSSI
@@ -667,6 +670,11 @@ void runLeaderboardSync() {
   if (seenPeerSlots == 0) return;
 
   lastFetchAttempt = millis();
+
+#if DEBUG_BLE_RSSI
+  Serial.print("[LEADERBOARD] Attempting fetch for peer slot ");
+  Serial.println(nextPeerToFetch);
+#endif
 
   // Round-robin through peers.
   if (nextPeerToFetch >= seenPeerSlots) nextPeerToFetch = 0;
