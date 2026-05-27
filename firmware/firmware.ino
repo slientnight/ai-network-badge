@@ -591,6 +591,13 @@ void fetchPeerScore(uint8_t peerIdx) {
 
   // Do a quick scan to find the peer's address.
   NimBLEScanResults results = bleScan->getResults();
+#if DEBUG_BLE_RSSI
+  Serial.print("[LEADERBOARD] Looking for ");
+  Serial.print(peer.name);
+  Serial.print(" in ");
+  Serial.print(results.getCount());
+  Serial.println(" scan results");
+#endif
   for (int i = 0; i < results.getCount(); i++) {
     const NimBLEAdvertisedDevice* d = results.getDevice(i);
     if (d->haveName() && String(d->getName().c_str()) == peer.name) {
@@ -599,13 +606,26 @@ void fetchPeerScore(uint8_t peerIdx) {
     }
   }
 
-  // If we can't find the device address, try connecting by running a short scan.
-  if (device == nullptr) return;
+  // If we can't find the device address, skip this cycle.
+  if (device == nullptr) {
+#if DEBUG_BLE_RSSI
+    Serial.println("[LEADERBOARD] Peer not in scan results, skipping");
+#endif
+    return;
+  }
+
+#if DEBUG_BLE_RSSI
+  Serial.print("[LEADERBOARD] Connecting to ");
+  Serial.println(peer.name);
+#endif
 
   NimBLEClient* pClient = NimBLEDevice::createClient();
   pClient->setConnectTimeout(3);
 
   if (!pClient->connect(device)) {
+#if DEBUG_BLE_RSSI
+    Serial.println("[LEADERBOARD] Connection failed");
+#endif
     NimBLEDevice::deleteClient(pClient);
     return;
   }
@@ -617,7 +637,17 @@ void fetchPeerScore(uint8_t peerIdx) {
       uint32_t remoteScore = pChar->getValue<uint32_t>();
       peer.score = remoteScore;
       peer.scoreFetchedMs = millis();
+#if DEBUG_BLE_RSSI
+      Serial.print("[LEADERBOARD] Got score=");
+      Serial.print(remoteScore);
+      Serial.print(" from ");
+      Serial.println(peer.name);
+#endif
     }
+  } else {
+#if DEBUG_BLE_RSSI
+    Serial.println("[LEADERBOARD] Service not found on peer");
+#endif
   }
 
   pClient->disconnect();
