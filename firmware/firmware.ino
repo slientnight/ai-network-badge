@@ -11,6 +11,7 @@
 #include <esp_mac.h>
 #include <math.h>
 #include "driver/temperature_sensor.h"
+#include "esp_sleep.h"
 
 // =============================================================================
 // CONFIG — Edit values in this block to personalize the badge.
@@ -1553,19 +1554,58 @@ void handleResetCount() {
 // Section 10: Input
 // =============================================================================
 
+void enterDeepSleep() {
+  Serial.println("Entering deep sleep...");
+  delay(100);
+
+  // Fade LEDs out.
+  for (int b = brightness; b >= 0; b -= 4) {
+    pixels.setBrightness(b > 0 ? b : 0);
+    pixels.show();
+    delay(30);
+  }
+  pixels.clear();
+  pixels.show();
+
+  // Configure GPIO 9 (BOOT button) as wake source — wake on LOW (button pressed).
+  esp_deep_sleep_enable_gpio_wakeup(1ULL << BOOT_BUTTON, ESP_GPIO_WAKEUP_GPIO_LOW);
+  esp_deep_sleep_start();
+}
+
 void checkButton() {
+  static unsigned long buttonPressStart = 0;
+  static bool buttonHeld = false;
+
   if (millis() - lastButtonCheck < 30) return;
   lastButtonCheck = millis();
 
   bool buttonState = digitalRead(BOOT_BUTTON);
 
   if (lastButtonState == HIGH && buttonState == LOW) {
-    idlePattern = (idlePattern + 1) % 4;
-    lastSignal = "BOOT button";
-    saveSettings();
+    // Button just pressed — record start time.
+    buttonPressStart = millis();
+    buttonHeld = true;
+  }
 
-    activeReaction = REACTION_LINKUP;
-    reactionStart = millis();
+  if (buttonHeld && buttonState == LOW) {
+    // Button still held — check for long press (3 seconds).
+    if (millis() - buttonPressStart >= 3000) {
+      enterDeepSleep();
+      // Never returns.
+    }
+  }
+
+  if (lastButtonState == LOW && buttonState == HIGH && buttonHeld) {
+    // Button released — if it was a short press, cycle pattern.
+    buttonHeld = false;
+    if (millis() - buttonPressStart < 3000) {
+      idlePattern = (idlePattern + 1) % 4;
+      lastSignal = "BOOT button";
+      saveSettings();
+
+      activeReaction = REACTION_LINKUP;
+      reactionStart = millis();
+    }
   }
 
   lastButtonState = buttonState;
