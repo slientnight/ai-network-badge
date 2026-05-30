@@ -25,7 +25,7 @@ A self-contained ESP32-C3 conference badge. It hosts an open Wi-Fi captive porta
 - **Friendly hostname**: the badge advertises itself over mDNS as `badge.local` so visitors can type that instead of `192.168.4.1`. Works on macOS, iOS, and modern Android — falls back to the captive portal otherwise.
 - **CPU die temperature** shown on the web page in °F and °C (internal sensor, not ambient — useful for diagnostics).
 - **Underclocked to 80 MHz** to reduce power draw and die temperature. 80 MHz is the minimum for Wi-Fi; all badge functions remain unaffected.
-- BOOT button (GPIO 9) cycles idle patterns on short press. **Long press (3 seconds)** fades LEDs and enters deep sleep (~5 µA). Press BOOT again to wake and reboot.
+- BOOT button (GPIO 9) cycles idle patterns on short press. **Long press (3 seconds)** fades LEDs and enters deep sleep (~5 µA). Press RST to wake and reboot.
 - Persistent settings (brightness, idle pattern, packet count, contact count, peer count) survive reboot via NVS namespace `badge`.
 - Admin endpoints for listing, exporting (CSV), and clearing contacts, gated by the active per-badge admin key.
 
