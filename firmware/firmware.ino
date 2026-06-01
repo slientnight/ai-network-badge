@@ -1135,6 +1135,7 @@ String htmlPage() {
   html += "<a class='danger' href='/resetcount'>Reset mesh score</a>";
   html += "<a class='secondary' href='/admin'>Owner: View Contacts</a>";
   html += "<a class='secondary' href='/admin?next=/console'>Owner: Console</a>";
+  html += "<a class='secondary' href='/admin?next=/update'>Owner: Firmware Update</a>";
 
   html += "<p class='small'>BLE presence: <b>" + activeBleName + "</b>. Nearby AI badges count as peers.</p>";
   float chipTemp = readChipTempC();
