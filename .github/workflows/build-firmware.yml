@@ -27,18 +27,27 @@ jobs:
           arduino-cli lib install "Adafruit NeoPixel"
           arduino-cli lib install "NimBLE-Arduino"
 
-      - name: Compile firmware
+      - name: Compile firmware (ESP32C3 Dev Module)
         run: |
           arduino-cli compile \
             --fqbn esp32:esp32:esp32c3:PartitionScheme=min_spiffs,CDCOnBoot=cdc \
-            --output-dir ./build \
+            --output-dir ./build/esp32c3-dev \
             firmware
 
-      - name: Upload build artifact
+      - name: Compile firmware (XIAO ESP32C3)
+        run: |
+          arduino-cli compile \
+            --fqbn esp32:esp32:XIAO_ESP32C3:PartitionScheme=min_spiffs \
+            --output-dir ./build/xiao-esp32c3 \
+            firmware
+
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: firmware-bin
-          path: build/firmware.ino.bin
+          path: |
+            build/esp32c3-dev/firmware.ino.bin
+            build/xiao-esp32c3/firmware.ino.bin
 
   release:
     needs: build
@@ -50,28 +59,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download build artifact
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           name: firmware-bin
           path: ./release
 
+      - name: Rename binaries for clarity
+        run: |
+          mv ./release/build/esp32c3-dev/firmware.ino.bin ./release/firmware-esp32c3-dev-module.bin
+          mv ./release/build/xiao-esp32c3/firmware.ino.bin ./release/firmware-xiao-esp32c3.bin
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release/firmware.ino.bin
+          files: |
+            release/firmware-esp32c3-dev-module.bin
+            release/firmware-xiao-esp32c3.bin
           body: |
             ## AI Network Badge Firmware ${{ github.ref_name }}
 
-            **Download `firmware.ino.bin`** below and upload it to your badge via the web OTA page (`/update`).
+            **Download the `.bin` for your board** and upload it via the web OTA page (`/update`).
 
-            ### Build info
-            - Board: ESP32C3 Dev Module
-            - Partition Scheme: Minimal SPIFFS (1.9MB APP with OTA)
-            - USB CDC On Boot: Enabled
+            | File | Board | Notes |
+            |------|-------|-------|
+            | `firmware-esp32c3-dev-module.bin` | ESP32-C3 SuperMini / generic C3 dev boards | USB CDC On Boot enabled |
+            | `firmware-xiao-esp32c3.bin` | Seeed XIAO ESP32-C3 | CDC handled by board profile |
 
-            ### How to update
+            ### How to update over Wi-Fi
             1. Connect to the badge Wi-Fi (`AI-BADGE-XXXX`)
             2. Go to `http://192.168.4.1/update?key=<your-key>`
-            3. Upload the `.bin` file
+            3. Upload the `.bin` file for your board
             4. Badge reboots with new firmware
