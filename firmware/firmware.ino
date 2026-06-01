@@ -12,6 +12,7 @@
 #include <math.h>
 #include "driver/temperature_sensor.h"
 #include "esp_sleep.h"
+#include <Update.h>
 
 // =============================================================================
 // CONFIG — Edit values in this block to personalize the badge.
@@ -1551,6 +1552,108 @@ void handleResetCount() {
 }
 
 // =============================================================================
+// Section 9b: OTA firmware update
+// =============================================================================
+
+void handleOtaPage() {
+  if (!adminAllowed()) {
+    server.sendHeader("Location", "/admin?next=/update");
+    server.send(303);
+    return;
+  }
+
+  String html = "";
+  html += "<!doctype html><html><head>";
+  html += "<meta charset='utf-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<title>Firmware Update</title>";
+  html += "<style>";
+  html += ":root{color-scheme:dark;}";
+  html += "body{font-family:system-ui;background:#090d14;color:white;margin:0;padding:22px;}";
+  html += ".card{max-width:480px;margin:60px auto;background:#121a27;border:1px solid #33435c;border-radius:24px;padding:28px;}";
+  html += "h1{font-size:26px;margin:0 0 12px;}";
+  html += "p{color:#bec8d8;line-height:1.45;}";
+  html += "input[type=file]{margin:16px 0;color:white;}";
+  html += "button{display:block;width:100%;border:0;background:#2ee58f;color:#06120b;";
+  html += "font-weight:900;font-size:16px;padding:15px;border-radius:14px;cursor:pointer;margin-top:12px;}";
+  html += ".danger{background:#70404a;color:#fff;}";
+  html += "</style></head><body>";
+  html += "<div class='card'>";
+  html += "<h1>Firmware Update</h1>";
+  html += "<p>Upload a compiled <code>.bin</code> file to update the badge firmware over Wi-Fi. The badge will reboot after a successful upload.</p>";
+  html += "<form method='POST' action='/update?key=" + activeAdminKey + "' enctype='multipart/form-data'>";
+  html += "<input type='file' name='firmware' accept='.bin'>";
+  html += "<button type='submit'>Upload &amp; Flash</button>";
+  html += "</form>";
+  html += "<p class='danger' style='margin-top:20px;padding:12px;border-radius:12px;font-size:13px;'>";
+  html += "Warning: uploading bad firmware can brick the badge. Only use .bin files built for this board.</p>";
+  html += "<a href='/' style='display:block;text-align:center;color:#7dffca;margin-top:16px;text-decoration:none;'>Back to badge</a>";
+  html += "</div></body></html>";
+
+  server.send(200, "text/html", html);
+}
+
+void handleOtaUpload() {
+  if (!adminAllowed()) return;
+
+  HTTPUpload& upload = server.upload();
+
+  if (upload.status == UPLOAD_FILE_START) {
+    Serial.print("[OTA] Starting: ");
+    Serial.println(upload.filename);
+    if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+      Serial.println("[OTA] Begin failed");
+    }
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+      Serial.println("[OTA] Write failed");
+    }
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (Update.end(true)) {
+      Serial.print("[OTA] Success, ");
+      Serial.print(upload.totalSize);
+      Serial.println(" bytes");
+    } else {
+      Serial.println("[OTA] End failed");
+    }
+  }
+}
+
+void handleOtaResult() {
+  if (!adminAllowed()) {
+    server.send(403, "text/plain", "Forbidden");
+    return;
+  }
+
+  String html = "";
+  html += "<!doctype html><html><head>";
+  html += "<meta charset='utf-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<title>Update Result</title>";
+  html += "<style>body{font-family:system-ui;background:#090d14;color:white;margin:0;padding:22px;}";
+  html += ".card{max-width:480px;margin:60px auto;background:#121a27;border:1px solid #33435c;border-radius:24px;padding:28px;}";
+  html += "h1{font-size:26px;margin:0 0 12px;}p{color:#bec8d8;}</style></head><body>";
+  html += "<div class='card'>";
+
+  if (Update.hasError()) {
+    html += "<h1>Update Failed</h1>";
+    html += "<p>The firmware upload failed. The badge will continue running the current firmware.</p>";
+    html += "<a href='/update?key=" + activeAdminKey + "' style='color:#7dffca;'>Try again</a>";
+  } else {
+    html += "<h1>Update Successful</h1>";
+    html += "<p>Firmware uploaded. The badge will reboot in 3 seconds...</p>";
+  }
+
+  html += "</div></body></html>";
+  server.send(200, "text/html", html);
+
+  if (!Update.hasError()) {
+    delay(3000);
+    ESP.restart();
+  }
+}
+
+// =============================================================================
 // Section 10: Input
 // =============================================================================
 
@@ -1704,6 +1807,8 @@ void setup() {
   server.on("/resetcount", handleResetCount);
   server.on("/admin/key", handleAdminKeyReveal);
   server.on("/console", handleConsole);
+  server.on("/update", HTTP_GET, handleOtaPage);
+  server.on("/update", HTTP_POST, handleOtaResult, handleOtaUpload);
 
   // Common captive portal detection URLs
   server.on("/generate_204", handleCaptivePortalProbe);              // Android
