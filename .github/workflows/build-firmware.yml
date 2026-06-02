@@ -44,13 +44,18 @@ jobs:
             --output-dir ./build/xiao-esp32c3 \
             firmware
 
+      - name: Rename binaries for release
+        run: |
+          cp ./build/esp32c3-dev/firmware.ino.bin ./build/firmware-esp32c3-dev-module.bin
+          cp ./build/xiao-esp32c3/firmware.ino.bin ./build/firmware-xiao-esp32c3.bin
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: firmware-bin
           path: |
-            build/esp32c3-dev/firmware.ino.bin
-            build/xiao-esp32c3/firmware.ino.bin
+            build/firmware-esp32c3-dev-module.bin
+            build/firmware-xiao-esp32c3.bin
 
   release:
     needs: build
@@ -68,10 +73,12 @@ jobs:
           name: firmware-bin
           path: ./release
 
-      - name: Rename binaries for clarity
-        run: |
-          mv ./release/build/esp32c3-dev/firmware.ino.bin ./release/firmware-esp32c3-dev-module.bin
-          mv ./release/build/xiao-esp32c3/firmware.ino.bin ./release/firmware-xiao-esp32c3.bin
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/firmware-esp32c3-dev-module.bin
+            release/firmware-xiao-esp32c3.bin
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
