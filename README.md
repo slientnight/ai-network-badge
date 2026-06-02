@@ -204,6 +204,29 @@ Unknown commands are echoed as `Unknown command: <line>` so typos are visible. L
 - **Peer timeout**: A peer is considered "nearby" if it was seen in the last 60 seconds (roughly 3 BLE scan cycles). After that it fades from the leaderboard and the Nearby Badges active list.
 - **Die temperature**: The CPU temp shown on the web page is the chip's internal sensor, not ambient. Typical values are 30–50°C depending on activity. It's useful for confirming the underclock is working.
 
+## OTA Firmware Updates
+
+The badge supports over-the-air firmware updates through its web interface — no USB cable needed after the initial flash.
+
+### First-Time Setup (USB required once)
+
+If your badge is currently using the "Huge APP" partition scheme, you need one USB flash to switch to the OTA-capable layout:
+
+1. In Arduino IDE, change Tools → Partition Scheme to **Minimal SPIFFS (1.9MB APP with OTA/128KB SPIFFS)**.
+2. Upload via USB. This rewrites the partition table on the chip.
+3. After this one-time switch, all future updates can be done over Wi-Fi.
+
+### Updating Over Wi-Fi
+
+1. Download the `.bin` for your board from the [Releases page](https://github.com/slientnight/ai-network-badge/releases).
+2. Connect to the badge Wi-Fi (`AI-BADGE-XXXX`).
+3. Tap **Owner: Firmware Update** on the badge home page (or go to `http://192.168.4.1/update`).
+4. Enter your admin key, upload the `.bin`, and the badge reboots with new firmware.
+
+### Automated Builds
+
+Every push to main and every tagged release is automatically compiled by GitHub Actions for both supported boards. The release page always has the latest tested binaries ready to download — even from your phone.
+
 ## Where Things Live
 
 - Hardware diagrams, pin references, and power notes: `wiring.md`.
