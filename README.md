@@ -108,7 +108,7 @@ The override is stored in NVS and survives reboots until you `clearkey` it. Ther
 
 1. Open `firmware/firmware.ino`.
 2. Tools → Board → select your target (`XIAO_ESP32C3` or `ESP32C3 Dev Module`).
-3. Tools → Partition Scheme → select **Huge APP (3MB No OTA/1MB SPIFFS)**. The firmware with NimBLE exceeds the default partition size.
+3. Tools → Partition Scheme → select **Minimal SPIFFS (1.9MB APP with OTA/128KB SPIFFS)**. This enables over-the-air updates. The firmware fits well within the 1.9 MB limit.
 4. **ESP32C3 Dev Module only**: Tools → USB CDC On Boot → **Enabled**. Without this, `Serial` output goes to the hardware UART pins instead of the USB port, and you won't see anything in the serial monitor. (The XIAO_ESP32C3 board profile handles this automatically.)
 5. Tools → Port → select the COM port the badge enumerated as.
 6. Click Upload.
@@ -119,7 +119,7 @@ The override is stored in NVS and survives reboots until you `clearkey` it. Ther
 arduino-cli core install esp32:esp32
 arduino-cli lib install "Adafruit NeoPixel"
 arduino-cli lib install "NimBLE-Arduino"
-arduino-cli compile --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app firmware
+arduino-cli compile --fqbn esp32:esp32:esp32c3:PartitionScheme=min_spiffs,CDCOnBoot=cdc firmware
 arduino-cli upload --fqbn esp32:esp32:esp32c3 -p COM3 firmware
 ```
 
@@ -198,7 +198,7 @@ Unknown commands are echoed as `Unknown command: <line>` so typos are visible. L
 
 ## Technical Notes
 
-- **Partition scheme**: You must select **Huge APP (3MB No OTA/1MB SPIFFS)** in Arduino IDE (or pass `PartitionScheme=huge_app` via CLI). The firmware with NimBLE exceeds the default partition size.
+- **Partition scheme**: You must select **Minimal SPIFFS (1.9MB APP with OTA/128KB SPIFFS)** in Arduino IDE (or pass `PartitionScheme=min_spiffs` via CLI). This enables OTA updates. The firmware with NimBLE is ~1.3 MB, well within the 1.9 MB limit.
 - **CPU frequency**: The badge runs at 80 MHz (set via `setCpuFrequencyMhz(80)` in `setup()`). This is the minimum clock that supports Wi-Fi and cuts die temperature significantly. If you need more CPU headroom for custom additions, you can change this to 160 MHz.
 - **BLE GATT leaderboard**: Each badge exposes its packet count as a readable BLE characteristic. Nearby badges connect as GATT clients to read each other's scores. This happens in a round-robin fashion (one peer every ~10 s) to avoid blocking the main loop.
 - **Peer timeout**: A peer is considered "nearby" if it was seen in the last 60 seconds (roughly 3 BLE scan cycles). After that it fades from the leaderboard and the Nearby Badges active list.
@@ -210,7 +210,7 @@ The badge supports over-the-air firmware updates through its web interface — n
 
 ### First-Time Setup (USB required once)
 
-If your badge is currently using the "Huge APP" partition scheme, you need one USB flash to switch to the OTA-capable layout:
+If your badge is currently using the "Huge APP" or "Default" partition scheme, you need one USB flash to switch to the OTA-capable layout:
 
 1. In Arduino IDE, change Tools → Partition Scheme to **Minimal SPIFFS (1.9MB APP with OTA/128KB SPIFFS)**.
 2. Upload via USB. This rewrites the partition table on the chip.
