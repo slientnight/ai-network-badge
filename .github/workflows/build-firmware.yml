@@ -73,21 +73,26 @@ jobs:
           name: firmware-bin
           path: ./release
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            release/firmware-esp32c3-dev-module.bin
-            release/firmware-xiao-esp32c3.bin
+      - name: Determine release type
+        id: release_type
+        run: |
+          if echo "${{ github.ref_name }}" | grep -q "beta"; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+            echo "label=Beta" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+            echo "label=Stable" >> $GITHUB_OUTPUT
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ steps.release_type.outputs.prerelease }}
           files: |
             release/firmware-esp32c3-dev-module.bin
             release/firmware-xiao-esp32c3.bin
           body: |
-            ## AI Network Badge Firmware ${{ github.ref_name }}
+            ## AI Network Badge Firmware ${{ github.ref_name }} (${{ steps.release_type.outputs.label }})
 
             **Download the `.bin` for your board** and upload it via the web OTA page (`/update`).
 
