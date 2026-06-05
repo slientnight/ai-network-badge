@@ -165,6 +165,12 @@ String lastSignal = "None yet";
 String activeAdminKey = "";
 String activeApSsid = "";
 String activeBleName = "";
+
+// Runtime config — loaded from NVS on boot, falls back to compiled defaults.
+String cfgOwner = "";
+String cfgTitle = "";
+String cfgLinkedIn = "";
+String cfgGitHub = "";
 ActivityEntry activityBuffer[ACTIVITY_BUFFER_SIZE];
 uint8_t activityHead = 0;
 uint8_t activityCount = 0;
@@ -262,6 +268,13 @@ void loadSettings() {
   packetCount = prefs.getUInt("packetCount", 0);
   contactPacketCount = prefs.getUInt("contactCount", 0);
   peerSeenCount = prefs.getUInt("peerSeen", 0);
+}
+
+void loadConfig() {
+  cfgOwner = prefs.getString("cfgOwner", BADGE_OWNER);
+  cfgTitle = prefs.getString("cfgTitle", BADGE_TITLE);
+  cfgLinkedIn = prefs.getString("cfgLinkedin", LINKEDIN_URL);
+  cfgGitHub = prefs.getString("cfgGithub", GITHUB_URL);
 }
 
 String keyFor(const char* prefix, uint8_t index) {
@@ -987,8 +1000,8 @@ String htmlPage() {
   html += "<div class='card'>";
   html += "<h1>I NETWORK<br>WITH AI</h1>";
 
-  html += "<p>Hi, I’m <b>" + String(BADGE_OWNER) + "</b>.<br>";
-  html += String(BADGE_TITLE) + " exploring AI-assisted infrastructure.</p>";
+  html += "<p>Hi, I’m <b>" + escapeHtml(cfgOwner) + "</b>.<br>";
+  html += escapeHtml(cfgTitle) + " exploring AI-assisted infrastructure.</p>";
 
   html += "<div class='game'>";
   html += "<h2>BUILD THE MESH</h2>";
@@ -1001,9 +1014,15 @@ String htmlPage() {
   html += "<span class='pill'>Last signal: " + escapeHtml(lastSignal) + "</span>";
   html += "</div>";
 
-  html += "<h2>Connect</h2>";
-  html += "<a href='" + String(LINKEDIN_URL) + "' target='_blank'>Connect on LinkedIn</a>";
-  html += "<a href='" + String(GITHUB_URL) + "' target='_blank'>View GitHub</a>";
+  if (cfgLinkedIn.length() > 0 || cfgGitHub.length() > 0) {
+    html += "<h2>Connect</h2>";
+    if (cfgLinkedIn.length() > 0) {
+      html += "<a href='" + escapeHtml(cfgLinkedIn) + "' target='_blank'>Connect on LinkedIn</a>";
+    }
+    if (cfgGitHub.length() > 0) {
+      html += "<a href='" + escapeHtml(cfgGitHub) + "' target='_blank'>View GitHub</a>";
+    }
+  }
 
   html += "<h2>Nearby Badges</h2>";
   html += "<div class='game'>";
@@ -1050,7 +1069,7 @@ String htmlPage() {
   uint8_t entryCount = 0;
 
   // Add local badge.
-  entries[entryCount++] = { String(BADGE_OWNER) + " (you)", packetCount, true };
+  entries[entryCount++] = { cfgOwner + " (you)", packetCount, true };
 
   // Add peers that have a known score and were seen recently.
   for (uint8_t i = 0; i < seenPeerSlots; i++) {
@@ -1136,6 +1155,7 @@ String htmlPage() {
   html += "<a class='secondary' href='/admin'>Owner: View Contacts</a>";
   html += "<a class='secondary' href='/admin?next=/console'>Owner: Console</a>";
   html += "<a class='secondary' href='/admin?next=/update'>Owner: Firmware Update</a>";
+  html += "<a class='secondary' href='/admin?next=/settings'>Owner: Settings</a>";
 
   html += "<p class='small'>BLE presence: <b>" + activeBleName + "</b>. Nearby AI badges count as peers.</p>";
   float chipTemp = readChipTempC();
@@ -1655,6 +1675,105 @@ void handleOtaResult() {
 }
 
 // =============================================================================
+// Section 9c: Settings page (runtime config)
+// =============================================================================
+
+void handleSettingsPage() {
+  if (!adminAllowed()) {
+    server.sendHeader("Location", "/admin?next=/settings");
+    server.send(303);
+    return;
+  }
+
+  // Check if admin key is still the MAC default — force change.
+  bool keyIsDefault = (activeAdminKey == macDerivedAdminKey());
+
+  String html = "";
+  html += "<!doctype html><html><head>";
+  html += "<meta charset='utf-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<title>Badge Settings</title>";
+  html += "<style>";
+  html += ":root{color-scheme:dark;}";
+  html += "body{font-family:system-ui;background:radial-gradient(circle at top,#22314a,#090d14 70%);color:white;margin:0;padding:22px;min-height:100vh;}";
+  html += ".card{max-width:520px;margin:40px auto;background:#121a27ee;border:1px solid #33435c;border-radius:24px;padding:28px;box-shadow:0 18px 60px #0009;}";
+  html += "h1{font-size:26px;margin:0 0 6px;}";
+  html += "p{color:#bec8d8;line-height:1.45;}";
+  html += "label{display:block;font-weight:800;margin:16px 0 6px;color:#d9e6ff;}";
+  html += "input{width:100%;box-sizing:border-box;border:1px solid #3a4e6c;background:#172235;color:white;border-radius:12px;padding:12px;font:inherit;}";
+  html += "button{display:block;width:100%;border:0;background:#2ee58f;color:#06120b;font-weight:900;font-size:16px;padding:15px;border-radius:14px;cursor:pointer;margin-top:20px;}";
+  html += ".warn{background:#70404a;border:1px solid #a05060;border-radius:12px;padding:14px;margin:16px 0;color:#ffcccc;}";
+  html += ".small{font-size:13px;color:#91a0b7;}";
+  html += "</style></head><body>";
+  html += "<div class='card'>";
+  html += "<h1>Badge Settings</h1>";
+  html += "<p>Changes are saved to NVS and persist across reboots. Clear a field to hide it from the badge page.</p>";
+
+  if (keyIsDefault) {
+    html += "<div class='warn'><b>You must set a custom admin key before saving.</b> The default MAC-derived key is not secure enough for a badge you'll hand to others.</div>";
+  }
+
+  html += "<form method='POST' action='/settings?key=" + activeAdminKey + "'>";
+
+  if (keyIsDefault) {
+    html += "<label for='newkey'>New Admin Key (required)</label>";
+    html += "<input id='newkey' name='newkey' maxlength='32' placeholder='Choose a new admin key' required>";
+  }
+
+  html += "<label for='owner'>Display Name</label>";
+  html += "<input id='owner' name='owner' maxlength='32' value='" + escapeHtml(cfgOwner) + "'>";
+
+  html += "<label for='title'>Title / Role</label>";
+  html += "<input id='title' name='title' maxlength='64' value='" + escapeHtml(cfgTitle) + "'>";
+
+  html += "<label for='linkedin'>LinkedIn URL</label>";
+  html += "<input id='linkedin' name='linkedin' maxlength='120' value='" + escapeHtml(cfgLinkedIn) + "' placeholder='https://www.linkedin.com/in/...'>";
+
+  html += "<label for='github'>GitHub URL</label>";
+  html += "<input id='github' name='github' maxlength='120' value='" + escapeHtml(cfgGitHub) + "' placeholder='https://github.com/...'>";
+
+  html += "<button type='submit'>Save Settings</button>";
+  html += "</form>";
+
+  html += "<p class='small'>Leave LinkedIn or GitHub blank to hide the button from the badge page.</p>";
+  html += "<a href='/' style='display:block;text-align:center;color:#7dffca;margin-top:16px;text-decoration:none;'>Back to badge</a>";
+  html += "</div></body></html>";
+
+  server.send(200, "text/html", html);
+}
+
+void handleSettingsSave() {
+  if (!adminAllowed()) {
+    server.send(403, "text/plain", "Forbidden");
+    return;
+  }
+
+  // Handle admin key change if present.
+  if (server.hasArg("newkey")) {
+    String newKey = cleanInput(server.arg("newkey"), 32);
+    if (newKey.length() > 0) {
+      prefs.putString("adminKey", newKey);
+      activeAdminKey = newKey;
+    }
+  }
+
+  // Save config fields.
+  cfgOwner = cleanInput(server.arg("owner"), 32);
+  cfgTitle = cleanInput(server.arg("title"), 64);
+  cfgLinkedIn = cleanInput(server.arg("linkedin"), 120);
+  cfgGitHub = cleanInput(server.arg("github"), 120);
+
+  prefs.putString("cfgOwner", cfgOwner);
+  prefs.putString("cfgTitle", cfgTitle);
+  prefs.putString("cfgLinkedin", cfgLinkedIn);
+  prefs.putString("cfgGithub", cfgGitHub);
+
+  // Redirect to settings page with new key if changed.
+  server.sendHeader("Location", "/settings?key=" + activeAdminKey);
+  server.send(303);
+}
+
+// =============================================================================
 // Section 10: Input
 // =============================================================================
 
@@ -1767,6 +1886,7 @@ void setup() {
   }
 
   loadSettings();
+  loadConfig();
   activeAdminKey = loadActiveAdminKey();
   activeApSsid = resolveApSsid();
   activeBleName = resolveBleName();
@@ -1810,6 +1930,8 @@ void setup() {
   server.on("/console", handleConsole);
   server.on("/update", HTTP_GET, handleOtaPage);
   server.on("/update", HTTP_POST, handleOtaResult, handleOtaUpload);
+  server.on("/settings", HTTP_GET, handleSettingsPage);
+  server.on("/settings", HTTP_POST, handleSettingsSave);
 
   // Common captive portal detection URLs
   server.on("/generate_204", handleCaptivePortalProbe);              // Android
