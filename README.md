@@ -19,6 +19,8 @@ A self-contained ESP32-C3 conference badge. It hosts an open Wi-Fi captive porta
 - **Peer-aware idle mode**: when at least one BLE peer is nearby, LED 0 pulses a subtle green accent on top of the active idle pattern — a passive "you're not alone" indicator.
 - **Recent Activity** feed on the home page: last 8 events (reactions, contacts, peer discoveries, level-ups) shown newest-first with relative timestamps. Volatile in RAM.
 - **Per-badge unique identifiers**: the Wi-Fi SSID, BLE advertising name, and admin key are all derived from the chip's burned-in MAC address. Every badge is unique out of the box — no configuration needed. Override any of them in the CONFIG block (see code comments for details).
+- **Web settings page** at `/settings`: change display name, title, LinkedIn URL, and GitHub URL from a browser — no reflashing needed. Settings are stored in NVS. Leave LinkedIn or GitHub blank to hide the button from the badge page. First visit forces an admin key change for security.
+- **Leaderboard shows human names**: peers exchange display names via BLE GATT alongside scores. If a peer has set a custom name, it shows on the leaderboard instead of the raw BLE ID.
 - **Owner login page** at `/admin`: friendly password prompt that sends the owner to the contacts admin page or the web console, depending on the `?next=` target. Wrong key bounces back with an inline error.
 - **Web console** at `/console`: terminal-styled page for running USB-serial commands (`setkey=`, `clearkey`, `factoryreset`) over Wi-Fi. Gated by the active admin key.
 - **OTA firmware update** at `/update`: upload a `.bin` file over Wi-Fi to flash new firmware without a USB cable. Gated by the active admin key.
@@ -200,6 +202,8 @@ All routes served from `http://192.168.4.1/` while connected to the badge Wi-Fi.
 | GET | `/contacts?key=` | admin key | HTML list of stored contacts |
 | GET | `/contacts.csv?key=` | admin key | CSV download of contacts |
 | GET | `/clearcontacts?key=` | admin key | Wipes all stored contacts |
+| GET | `/update` | admin key | OTA firmware update — upload a `.bin` to flash new firmware over Wi-Fi |
+| GET/POST | `/settings` | admin key | Badge settings — edit display name, title, LinkedIn/GitHub URLs |
 
 The badge also intercepts Apple, Android, and Windows captive-portal probe URLs.
 

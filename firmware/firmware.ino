@@ -84,6 +84,7 @@ const unsigned long SCORE_FETCH_INTERVAL_MS = 45000;
 // Service: exposes the badge's mesh packet count to nearby peers.
 #define BADGE_SERVICE_UUID        "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 #define BADGE_SCORE_CHAR_UUID     "a1b2c3d4-e5f6-7890-abcd-ef1234567891"
+#define BADGE_NAME_CHAR_UUID      "a1b2c3d4-e5f6-7890-abcd-ef1234567892"
 const uint32_t BLE_SCAN_SECONDS = 3;
 const uint8_t MAX_SEEN_PEERS = 12;
 const unsigned long REACTION_MS = 4500;
@@ -101,6 +102,7 @@ IPAddress netMsk(255, 255, 255, 0);
 
 struct PeerRecord {
   String name;
+  String displayName;    // Human-friendly name read via GATT (empty until synced).
   int8_t rssiFirst;
   int8_t rssiLast;
   unsigned long firstSeenMs;
@@ -135,6 +137,7 @@ uint32_t peerSeenCount = 0;
 
 NimBLEScan* bleScan = nullptr;
 NimBLECharacteristic* scoreCharacteristic = nullptr;
+NimBLECharacteristic* nameCharacteristic = nullptr;
 temperature_sensor_handle_t tempSensor = NULL;
 unsigned long lastBleScan = 0;
 
@@ -256,9 +259,12 @@ void saveSettings() {
   prefs.putUInt("contactCount", contactPacketCount);
   prefs.putUInt("peerSeen", peerSeenCount);
 
-  // Keep the GATT characteristic in sync so peers read the latest score.
+  // Keep the GATT characteristics in sync so peers read the latest values.
   if (scoreCharacteristic != nullptr) {
     scoreCharacteristic->setValue(packetCount);
+  }
+  if (nameCharacteristic != nullptr) {
+    nameCharacteristic->setValue(cfgOwner.c_str());
   }
 }
 
@@ -562,6 +568,13 @@ void startBlePresence() {
   );
   // Set initial value (4 bytes, little-endian uint32).
   scoreCharacteristic->setValue(packetCount);
+
+  nameCharacteristic = pService->createCharacteristic(
+    BADGE_NAME_CHAR_UUID,
+    NIMBLE_PROPERTY::READ
+  );
+  nameCharacteristic->setValue(cfgOwner.c_str());
+
   pService->start();
 
   NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
@@ -661,6 +674,14 @@ void fetchPeerScore(uint8_t peerIdx) {
       Serial.print(" from ");
       Serial.println(peer.name);
 #endif
+    }
+    // Read display name characteristic.
+    NimBLERemoteCharacteristic* pNameChar = pService->getCharacteristic(BADGE_NAME_CHAR_UUID);
+    if (pNameChar != nullptr && pNameChar->canRead()) {
+      String remoteName = String(pNameChar->readValue().c_str());
+      if (remoteName.length() > 0) {
+        peer.displayName = remoteName;
+      }
     }
   } else {
 #if DEBUG_BLE_RSSI
@@ -1074,7 +1095,8 @@ String htmlPage() {
   // Add peers that have a known score and were seen recently.
   for (uint8_t i = 0; i < seenPeerSlots; i++) {
     if (seenPeers[i].score > 0 && millis() - seenPeers[i].lastSeenMs < PEER_NEARBY_TIMEOUT_MS) {
-      entries[entryCount++] = { seenPeers[i].name, seenPeers[i].score, false };
+      String peerLabel = seenPeers[i].displayName.length() > 0 ? seenPeers[i].displayName : seenPeers[i].name;
+      entries[entryCount++] = { peerLabel, seenPeers[i].score, false };
     }
   }
 
@@ -1767,6 +1789,11 @@ void handleSettingsSave() {
   prefs.putString("cfgTitle", cfgTitle);
   prefs.putString("cfgLinkedin", cfgLinkedIn);
   prefs.putString("cfgGithub", cfgGitHub);
+
+  // Update GATT name characteristic live.
+  if (nameCharacteristic != nullptr) {
+    nameCharacteristic->setValue(cfgOwner.c_str());
+  }
 
   // Redirect to settings page with new key if changed.
   server.sendHeader("Location", "/settings?key=" + activeAdminKey);
