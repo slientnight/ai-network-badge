@@ -2,10 +2,10 @@ name: Build Firmware
 
 on:
   push:
-    branches: [main]
+    branches: [main, beta]
     tags: ['v*']
   pull_request:
-    branches: [main]
+    branches: [main, beta]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
