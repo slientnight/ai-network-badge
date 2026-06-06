@@ -77,6 +77,11 @@ const unsigned long BLE_SCAN_INTERVAL_MS = 20000;
 // for the peer-aware idle accent. Two scan intervals plus margin.
 const unsigned long PEER_NEARBY_TIMEOUT_MS = 60000;
 
+// Fist bump: Adjacent RSSI threshold and hold time.
+const int8_t FIST_BUMP_RSSI_THRESHOLD = -40;
+const unsigned long FIST_BUMP_HOLD_MS = 3000;
+const uint8_t FIST_BUMP_PACKET_VALUE = 5;
+
 // How often to re-fetch a peer's score via GATT (avoid hammering connections).
 const unsigned long SCORE_FETCH_INTERVAL_MS = 45000;
 
@@ -85,6 +90,7 @@ const unsigned long SCORE_FETCH_INTERVAL_MS = 45000;
 #define BADGE_SERVICE_UUID        "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 #define BADGE_SCORE_CHAR_UUID     "a1b2c3d4-e5f6-7890-abcd-ef1234567891"
 #define BADGE_NAME_CHAR_UUID      "a1b2c3d4-e5f6-7890-abcd-ef1234567892"
+#define BADGE_BUMP_CHAR_UUID      "a1b2c3d4-e5f6-7890-abcd-ef1234567893"
 const uint32_t BLE_SCAN_SECONDS = 3;
 const uint8_t MAX_SEEN_PEERS = 12;
 const unsigned long REACTION_MS = 4500;
@@ -109,6 +115,8 @@ struct PeerRecord {
   unsigned long lastSeenMs;
   uint32_t score;          // Peer's packet count (0 = not yet fetched)
   unsigned long scoreFetchedMs;  // When we last read their score
+  unsigned long adjacentSinceMs; // When peer first went Adjacent (0 = not adjacent)
+  bool fistBumped;               // True if we already bumped this peer this session
 };
 
 enum ActivityCategory {
@@ -138,7 +146,11 @@ uint32_t peerSeenCount = 0;
 NimBLEScan* bleScan = nullptr;
 NimBLECharacteristic* scoreCharacteristic = nullptr;
 NimBLECharacteristic* nameCharacteristic = nullptr;
+NimBLECharacteristic* bumpCharacteristic = nullptr;
 temperature_sensor_handle_t tempSensor = NULL;
+
+// Set to true when a remote badge writes to our bump characteristic.
+volatile bool incomingBumpReceived = false;
 unsigned long lastBleScan = 0;
 
 PeerRecord seenPeers[MAX_SEEN_PEERS];
@@ -157,7 +169,8 @@ enum Reaction {
   REACTION_STORM,
   REACTION_GITHUB,
   REACTION_LINKEDIN,
-  REACTION_CONTACT
+  REACTION_CONTACT,
+  REACTION_FISTBUMP
 };
 
 Reaction activeReaction = REACTION_NONE;
@@ -433,6 +446,7 @@ String reactionName(Reaction r) {
     case REACTION_GITHUB:   return "GitHub";
     case REACTION_LINKEDIN: return "LinkedIn";
     case REACTION_CONTACT:  return "Contact";
+    case REACTION_FISTBUMP: return "Fist Bump";
     default:                return "Reaction";
   }
 }
@@ -509,6 +523,25 @@ void rememberPeer(String peerName, int8_t rssi) {
       Serial.print(" rssi=");
       Serial.println(rssi);
 #endif
+
+      // Fist bump proximity tracking.
+      if (rssi >= FIST_BUMP_RSSI_THRESHOLD) {
+        if (seenPeers[i].adjacentSinceMs == 0) {
+          seenPeers[i].adjacentSinceMs = millis();
+        } else if (!seenPeers[i].fistBumped &&
+                   millis() - seenPeers[i].adjacentSinceMs >= FIST_BUMP_HOLD_MS) {
+          // Fist bump triggered!
+          seenPeers[i].fistBumped = true;
+          triggerReaction(REACTION_FISTBUMP, "Fist bump: " + peerName, FIST_BUMP_PACKET_VALUE);
+          addActivity(ACTIVITY_CONTACT, "Fist bump: " + peerName);
+          // Try to notify the peer via GATT (best-effort, non-blocking).
+          notifyPeerBump(i);
+        }
+      } else {
+        // No longer adjacent — reset the timer.
+        seenPeers[i].adjacentSinceMs = 0;
+      }
+
       return;
     }
   }
@@ -528,6 +561,8 @@ void rememberPeer(String peerName, int8_t rssi) {
   seenPeers[idx].lastSeenMs = millis();
   seenPeers[idx].score = 0;
   seenPeers[idx].scoreFetchedMs = 0;
+  seenPeers[idx].adjacentSinceMs = 0;
+  seenPeers[idx].fistBumped = false;
 
   peerSeenCount++;
   lastSignal = "Peer found: " + peerName;
@@ -556,6 +591,51 @@ class BadgeAdvertisedDeviceCallbacks : public NimBLEScanCallbacks {
   }
 };
 
+// Callback for when a remote badge writes to our bump characteristic.
+class BumpCallbacks : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
+    incomingBumpReceived = true;
+  }
+};
+
+// Best-effort: try to connect to a peer and write to their bump characteristic.
+// This notifies badges running new firmware that a fist bump happened.
+// Fails silently for old-firmware badges (they just don't have the characteristic).
+void notifyPeerBump(uint8_t peerIdx) {
+  if (peerIdx >= seenPeerSlots) return;
+
+  NimBLEScanResults results = bleScan->getResults();
+  NimBLEAdvertisedDevice* device = nullptr;
+  for (int i = 0; i < results.getCount(); i++) {
+    const NimBLEAdvertisedDevice* d = results.getDevice(i);
+    if (d->haveName() && String(d->getName().c_str()) == seenPeers[peerIdx].name) {
+      device = const_cast<NimBLEAdvertisedDevice*>(d);
+      break;
+    }
+  }
+  if (device == nullptr) return;
+
+  bleScan->stop();
+
+  NimBLEClient* pClient = NimBLEDevice::createClient();
+  pClient->setConnectTimeout(5);
+
+  if (pClient->connect(device)) {
+    NimBLERemoteService* pService = pClient->getService(BADGE_SERVICE_UUID);
+    if (pService != nullptr) {
+      NimBLERemoteCharacteristic* pBump = pService->getCharacteristic(BADGE_BUMP_CHAR_UUID);
+      if (pBump != nullptr && pBump->canWrite()) {
+        uint8_t bump = 1;
+        pBump->writeValue(&bump, 1);
+      }
+    }
+    pClient->disconnect();
+  }
+
+  NimBLEDevice::deleteClient(pClient);
+  NimBLEDevice::startAdvertising();
+}
+
 void startBlePresence() {
   NimBLEDevice::init(activeBleName.c_str());
 
@@ -574,6 +654,12 @@ void startBlePresence() {
     NIMBLE_PROPERTY::READ
   );
   nameCharacteristic->setValue(cfgOwner.c_str());
+
+  bumpCharacteristic = pService->createCharacteristic(
+    BADGE_BUMP_CHAR_UUID,
+    NIMBLE_PROPERTY::WRITE
+  );
+  bumpCharacteristic->setCallbacks(new BumpCallbacks());
 
   pService->start();
 
@@ -913,6 +999,20 @@ void reactionContact(unsigned long elapsed) {
   }
 }
 
+void reactionFistBump(unsigned long elapsed) {
+  clearPixels();
+
+  // Alternating gold and cyan flash — celebratory dual-color burst.
+  bool phase = ((elapsed / 150) % 2) == 0;
+  for (int i = 0; i < NUM_LEDS; i++) {
+    if ((i % 2 == 0) == phase) {
+      pixels.setPixelColor(i, pixels.Color(255, 180, 0));   // Gold
+    } else {
+      pixels.setPixelColor(i, pixels.Color(0, 220, 255));   // Cyan
+    }
+  }
+}
+
 void renderReaction() {
   unsigned long elapsed = millis() - reactionStart;
 
@@ -942,6 +1042,9 @@ void renderReaction() {
       break;
     case REACTION_CONTACT:
       reactionContact(elapsed);
+      break;
+    case REACTION_FISTBUMP:
+      reactionFistBump(elapsed);
       break;
     default:
       break;
@@ -2015,6 +2118,13 @@ void loop() {
   runBlePresenceScan();
   runLeaderboardSync();
   checkButton();
+
+  // Handle incoming fist bump from a peer (they wrote to our bump characteristic).
+  if (incomingBumpReceived) {
+    incomingBumpReceived = false;
+    triggerReaction(REACTION_FISTBUMP, "Fist bump received!", FIST_BUMP_PACKET_VALUE);
+    addActivity(ACTIVITY_CONTACT, "Fist bump received!");
+  }
 
   if (millis() - lastFrame > 55) {
     lastFrame = millis();
