@@ -75,9 +75,9 @@ const byte DNS_PORT = 53;
 IPAddress apIP(192, 168, 4, 1);
 IPAddress netMsk(255, 255, 255, 0);
 
-// LCD colors
+// LCD colors (RGB565)
 #define BG_COLOR      0x0841  // Very dark blue-gray
-#define TEXT_COLOR    TFT_WHITE
+#define TEXT_COLOR    0xFFFF  // White
 #define ACCENT_COLOR  0x07FF  // Cyan
 #define LEVEL_COLOR   0x47EA  // Green-cyan
 #define DIM_COLOR     0x6B4D  // Muted gray
