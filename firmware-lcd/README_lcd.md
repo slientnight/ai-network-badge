@@ -28,39 +28,10 @@ Plus:
 ## Prerequisites
 
 - Arduino IDE 2.x with ESP32 board package (≥3.0.0)
-- **TFT_eSPI** library — install via Library Manager
-- **NimBLE-Arduino** library — install via Library Manager
+- **Arduino_GFX_Library** by moononournation — install via Library Manager (search "GFX Library for Arduino")
+- **NimBLE-Arduino** by h2zero — install via Library Manager
 
-### TFT_eSPI Configuration
-
-You must configure TFT_eSPI for this board. The easiest method:
-
-1. Find your TFT_eSPI library folder (usually `~/Arduino/libraries/TFT_eSPI/`)
-2. Open `User_Setup.h` and replace its contents with:
-
-```c
-#define ST7789_DRIVER
-#define TFT_WIDTH  172
-#define TFT_HEIGHT 320
-#define TFT_RGB_ORDER TFT_BGR
-#define TFT_INVERSION_ON
-#define TFT_BACKLIGHT_ON 1
-
-#define TFT_CS    14
-#define TFT_MOSI   6
-#define TFT_SCLK   7
-#define TFT_DC    15
-#define TFT_BL    22
-#define TFT_RST   21
-
-#define LOAD_GLCD
-#define LOAD_FONT2
-#define LOAD_FONT4
-#define LOAD_GFXFF
-#define SMOOTH_FONT
-
-#define SPI_FREQUENCY 80000000
-```
+No special display configuration files needed — pin mapping is defined directly in the sketch.
 
 ## Build and Flash
 
@@ -68,7 +39,7 @@ You must configure TFT_eSPI for this board. The easiest method:
 2. Tools → Board → **ESP32C6 Dev Module**
 3. Tools → Partition Scheme → **Minimal SPIFFS (1.9MB APP with OTA)**
 4. Tools → USB CDC On Boot → **Enabled**
-5. Upload.
+5. Upload (hold BOOT + press RST if upload fails, then release BOOT).
 
 ## Pin Mapping
 

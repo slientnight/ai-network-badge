@@ -16,7 +16,7 @@
 #include "esp_sleep.h"
 #include <Update.h>
 #include <SPI.h>
-#include <TFT_eSPI.h>
+#include <Arduino_GFX_Library.h>
 
 // =============================================================================
 // CONFIG — Edit values in this block to personalize the badge.
@@ -50,7 +50,6 @@ const char* AP_SSID_OVERRIDE = "";
 // Section 2: Hardware and limits
 // =============================================================================
 #define BOOT_BUTTON 9
-#define LCD_BL_PIN 22
 
 const char* AP_PASS = "";
 
@@ -111,7 +110,16 @@ struct ActivityEntry {
   ActivityCategory category;
 };
 
-TFT_eSPI tft = TFT_eSPI();
+// LCD pins (Waveshare ESP32-C6-LCD-1.47)
+#define LCD_CS   14
+#define LCD_DC   15
+#define LCD_RST  21
+#define LCD_BL   22
+#define LCD_MOSI  6
+#define LCD_SCK   7
+
+Arduino_DataBus *bus = new Arduino_ESP32SPI(LCD_DC, LCD_CS, LCD_SCK, LCD_MOSI, -1 /* MISO */);
+Arduino_GFX *gfx = new Arduino_ST7789(bus, LCD_RST, 0 /* rotation */, true /* IPS */, 172, 320);
 WebServer server(80);
 DNSServer dnsServer;
 Preferences prefs;
@@ -298,57 +306,67 @@ bool peersNearby() {
 // =============================================================================
 
 void lcdDrawBadge() {
-  tft.fillScreen(BG_COLOR);
+  gfx->fillScreen(BG_COLOR);
 
   // Header: I NETWORK WITH AI
-  tft.setTextColor(ACCENT_COLOR);
-  tft.setTextDatum(TC_DATUM);
-  tft.setTextSize(1);
-  tft.drawString("I NETWORK", tft.width() / 2, 8, 4);
-  tft.drawString("WITH AI", tft.width() / 2, 34, 4);
+  gfx->setTextColor(ACCENT_COLOR);
+  gfx->setTextSize(2);
+  int16_t tw;
+  tw = 9 * 2 * 6; // approximate "I NETWORK" width
+  gfx->setCursor((172 - tw) / 2 + 10, 10);
+  gfx->print("I NETWORK");
+  tw = 7 * 2 * 6;
+  gfx->setCursor((172 - tw) / 2 + 10, 34);
+  gfx->print("WITH AI");
 
   // Owner name and title
-  tft.setTextColor(TEXT_COLOR);
-  tft.drawString(cfgOwner, tft.width() / 2, 68, 2);
-  tft.setTextColor(DIM_COLOR);
-  tft.drawString(cfgTitle, tft.width() / 2, 88, 1);
+  gfx->setTextSize(1);
+  gfx->setTextColor(TEXT_COLOR);
+  gfx->setCursor(10, 68);
+  gfx->print(cfgOwner);
+  gfx->setTextColor(DIM_COLOR);
+  gfx->setCursor(10, 82);
+  gfx->print(cfgTitle);
 
   // Divider
-  tft.drawFastHLine(10, 105, tft.width() - 20, DIM_COLOR);
+  gfx->drawFastHLine(10, 98, 152, DIM_COLOR);
 
   // Level
-  tft.setTextColor(LEVEL_COLOR);
-  tft.drawString(badgeLevelName(), tft.width() / 2, 112, 2);
+  gfx->setTextColor(LEVEL_COLOR);
+  gfx->setTextSize(2);
+  gfx->setCursor(10, 106);
+  gfx->print(badgeLevelName());
 
   // Stats
-  tft.setTextColor(TEXT_COLOR);
-  tft.setTextDatum(TL_DATUM);
-  int y = 138;
-  tft.drawString("Packets: " + String(packetCount), 10, y, 2);
-  y += 20;
-  tft.drawString("Cards: " + String(contactPacketCount), 10, y, 2);
-  y += 20;
-  tft.drawString("Peers: " + String(peerSeenCount), 10, y, 2);
-  y += 20;
+  gfx->setTextSize(1);
+  gfx->setTextColor(TEXT_COLOR);
+  int y = 132;
+  gfx->setCursor(10, y); gfx->print("Packets: "); gfx->print(packetCount);
+  y += 14;
+  gfx->setCursor(10, y); gfx->print("Cards: "); gfx->print(contactPacketCount);
+  y += 14;
+  gfx->setCursor(10, y); gfx->print("Peers: "); gfx->print(peerSeenCount);
+  y += 14;
 
   uint32_t next = nextUnlockCount();
+  gfx->setTextColor(DIM_COLOR);
+  gfx->setCursor(10, y);
   if (next > 0) {
-    tft.setTextColor(DIM_COLOR);
-    tft.drawString("Next: " + String(next - packetCount) + " more", 10, y, 2);
+    gfx->print("Next: "); gfx->print(next - packetCount); gfx->print(" more");
   } else {
-    tft.setTextColor(LEVEL_COLOR);
-    tft.drawString("All unlocks active", 10, y, 2);
+    gfx->setTextColor(LEVEL_COLOR);
+    gfx->print("All unlocks active");
   }
-  y += 26;
+  y += 20;
 
   // Divider
-  tft.drawFastHLine(10, y, tft.width() - 20, DIM_COLOR);
+  gfx->drawFastHLine(10, y, 152, DIM_COLOR);
   y += 8;
 
   // Nearby peers
-  tft.setTextColor(ACCENT_COLOR);
-  tft.drawString("Nearby Badges", 10, y, 2);
-  y += 20;
+  gfx->setTextColor(ACCENT_COLOR);
+  gfx->setCursor(10, y); gfx->print("Nearby Badges");
+  y += 14;
 
   uint8_t shown = 0;
   for (uint8_t i = 0; i < seenPeerSlots && shown < 3; i++) {
@@ -356,28 +374,25 @@ void lcdDrawBadge() {
       String label = seenPeers[i].displayName.length() > 0
                        ? seenPeers[i].displayName
                        : seenPeers[i].name;
-      tft.setTextColor(TEXT_COLOR);
-      tft.drawString(label, 10, y, 1);
-      tft.setTextColor(DIM_COLOR);
-      tft.drawString(rssiLabel(seenPeers[i].rssiLast), 130, y, 1);
-      y += 14;
+      gfx->setTextColor(TEXT_COLOR);
+      gfx->setCursor(10, y); gfx->print(label.substring(0, 18));
+      y += 12;
       shown++;
     }
   }
   if (shown == 0) {
-    tft.setTextColor(DIM_COLOR);
-    tft.drawString("No peers nearby", 10, y, 1);
-    y += 14;
+    gfx->setTextColor(DIM_COLOR);
+    gfx->setCursor(10, y); gfx->print("No peers nearby");
+    y += 12;
   }
 
-  // Footer: Wi-Fi SSID and temp
-  y = tft.height() - 30;
-  tft.setTextColor(DIM_COLOR);
-  tft.setTextDatum(TC_DATUM);
-  tft.drawString("WiFi: " + activeApSsid, tft.width() / 2, y, 1);
+  // Footer
+  gfx->setTextColor(DIM_COLOR);
+  gfx->setCursor(10, 296);
+  gfx->print("WiFi: "); gfx->print(activeApSsid);
   float tempC = readChipTempC();
-  float tempF = tempC * 9.0 / 5.0 + 32.0;
-  tft.drawString(String(tempF, 0) + "F / " + String(tempC, 0) + "C", tft.width() / 2, y + 14, 1);
+  gfx->setCursor(10, 308);
+  gfx->print(String(tempC * 9.0 / 5.0 + 32.0, 0) + "F / " + String(tempC, 0) + "C");
 }
 
 void updateDisplay() {
@@ -605,15 +620,15 @@ void setup() {
   pinMode(BOOT_BUTTON, INPUT_PULLUP);
 
   // LCD init
-  tft.init();
-  tft.setRotation(0);  // Portrait: 172 wide, 320 tall
-  tft.fillScreen(BG_COLOR);
-  pinMode(LCD_BL_PIN, OUTPUT);
-  digitalWrite(LCD_BL_PIN, HIGH);  // Backlight on
+  gfx->begin();
+  gfx->fillScreen(BG_COLOR);
+  pinMode(LCD_BL, OUTPUT);
+  digitalWrite(LCD_BL, HIGH);  // Backlight on
 
-  tft.setTextColor(ACCENT_COLOR);
-  tft.setTextDatum(MC_DATUM);
-  tft.drawString("Booting...", tft.width() / 2, tft.height() / 2, 2);
+  gfx->setTextColor(ACCENT_COLOR);
+  gfx->setTextSize(1);
+  gfx->setCursor(30, 150);
+  gfx->print("Booting...");
 
   prefs.begin("badge", false);
   loadSettings();
