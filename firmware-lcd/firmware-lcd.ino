@@ -536,6 +536,8 @@ void handleRoot() {
   html += "</div>";
 
   html += "<p class='small'>WiFi: " + activeApSsid + " | BLE: " + activeBleName + "</p>";
+  float tempC = readChipTempC();
+  html += "<p class='small'>CPU: " + String(tempC * 9.0 / 5.0 + 32.0, 1) + " &deg;F (" + String(tempC, 1) + " &deg;C)</p>";
   html += "</div></body></html>";
   server.send(200, "text/html", html);
 }
@@ -608,6 +610,200 @@ void handleNotFound() {
   server.send(302);
 }
 
+// --- Admin login ---
+void handleAdminLogin() {
+  bool wrongKey = server.hasArg("key") && server.arg("key") != activeAdminKey;
+  String nextPath = server.hasArg("next") ? server.arg("next") : "/contacts";
+
+  if (adminAllowed()) {
+    server.sendHeader("Location", nextPath + "?key=" + activeAdminKey);
+    server.send(303);
+    return;
+  }
+
+  String html = "<!doctype html><html><head><meta charset='utf-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<title>Owner Login</title>";
+  html += "<style>:root{color-scheme:dark;}body{font-family:system-ui;background:#090d14;color:white;margin:0;padding:22px;}";
+  html += ".card{max-width:420px;margin:60px auto;background:#121a27;border:1px solid #33435c;border-radius:24px;padding:28px;}";
+  html += "h1{font-size:26px;margin:0 0 6px;}p{color:#bec8d8;}";
+  html += "input{width:100%;box-sizing:border-box;border:1px solid #3a4e6c;background:#172235;color:white;border-radius:12px;padding:12px;font:inherit;margin:10px 0;}";
+  html += "button{display:block;width:100%;border:0;background:#2ee58f;color:#06120b;font-weight:900;padding:14px;border-radius:14px;cursor:pointer;}";
+  html += ".err{color:#ff6b6b;}</style></head><body><div class='card'>";
+  html += "<h1>Owner Login</h1>";
+  if (wrongKey) html += "<p class='err'>Wrong key. Try again.</p>";
+  html += "<form method='get' action='" + nextPath + "'>";
+  html += "<input name='key' placeholder='Admin key' autofocus>";
+  html += "<button type='submit'>Login</button></form>";
+  html += "</div></body></html>";
+  server.send(200, "text/html", html);
+}
+
+// --- Contacts admin ---
+void handleContactsAdmin() {
+  if (!adminAllowed()) { server.sendHeader("Location", "/admin?next=/contacts"); server.send(303); return; }
+  uint8_t count = prefs.getUChar("contactCnt", 0);
+  String html = "<!doctype html><html><head><meta charset='utf-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<title>Contacts</title>";
+  html += "<style>:root{color-scheme:dark;}body{font-family:system-ui;background:#090d14;color:white;margin:0;padding:22px;}";
+  html += ".card{max-width:520px;margin:auto;background:#121a27;border:1px solid #33435c;border-radius:24px;padding:24px;}";
+  html += "h1{font-size:24px;margin:0 0 12px;}p{color:#bec8d8;}";
+  html += "a{display:block;text-align:center;color:#7dffca;margin-top:12px;text-decoration:none;}";
+  html += ".danger{color:#ff6b6b;}</style></head><body><div class='card'>";
+  html += "<h1>Stored Contacts (" + String(count) + ")</h1>";
+  for (uint8_t i = 0; i < count; i++) {
+    char key[8];
+    snprintf(key, sizeof(key), "cn%02u", i); String n = prefs.getString(key, "");
+    snprintf(key, sizeof(key), "cc%02u", i); String c = prefs.getString(key, "");
+    snprintf(key, sizeof(key), "co%02u", i); String o = prefs.getString(key, "");
+    html += "<p><b>" + escapeHtml(n) + "</b><br>" + escapeHtml(c) + "<br><i>" + escapeHtml(o) + "</i></p>";
+  }
+  if (count == 0) html += "<p>No contacts yet.</p>";
+  html += "<a href='/contacts.csv?key=" + activeAdminKey + "'>Download CSV</a>";
+  html += "<a class='danger' href='/clearcontacts?key=" + activeAdminKey + "'>Clear All Contacts</a>";
+  html += "<a href='/'>Back to badge</a>";
+  html += "</div></body></html>";
+  server.send(200, "text/html", html);
+}
+
+void handleContactsCsv() {
+  if (!adminAllowed()) { server.send(403, "text/plain", "Forbidden"); return; }
+  uint8_t count = prefs.getUChar("contactCnt", 0);
+  String csv = "Name,Contact,Note\r\n";
+  for (uint8_t i = 0; i < count; i++) {
+    char key[8];
+    snprintf(key, sizeof(key), "cn%02u", i); String n = prefs.getString(key, "");
+    snprintf(key, sizeof(key), "cc%02u", i); String c = prefs.getString(key, "");
+    snprintf(key, sizeof(key), "co%02u", i); String o = prefs.getString(key, "");
+    csv += "\"" + n + "\",\"" + c + "\",\"" + o + "\"\r\n";
+  }
+  server.sendHeader("Content-Disposition", "attachment; filename=contacts.csv");
+  server.send(200, "text/csv", csv);
+}
+
+void handleClearContacts() {
+  if (!adminAllowed()) { server.send(403, "text/plain", "Forbidden"); return; }
+  uint8_t count = prefs.getUChar("contactCnt", 0);
+  for (uint8_t i = 0; i < count; i++) {
+    char key[8];
+    snprintf(key, sizeof(key), "cn%02u", i); prefs.remove(key);
+    snprintf(key, sizeof(key), "cc%02u", i); prefs.remove(key);
+    snprintf(key, sizeof(key), "co%02u", i); prefs.remove(key);
+  }
+  prefs.putUChar("contactCnt", 0);
+  server.sendHeader("Location", "/contacts?key=" + activeAdminKey);
+  server.send(303);
+}
+
+// --- Reset count ---
+void handleResetCount() {
+  packetCount = 0;
+  peerSeenCount = 0;
+  seenPeerSlots = 0;
+  lastSignal = "Mesh score reset";
+  saveSettings();
+  server.sendHeader("Location", "/");
+  server.send(303);
+}
+
+// --- OTA update ---
+void handleOtaPage() {
+  if (!adminAllowed()) { server.sendHeader("Location", "/admin?next=/update"); server.send(303); return; }
+  String html = "<!doctype html><html><head><meta charset='utf-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<title>Firmware Update</title>";
+  html += "<style>:root{color-scheme:dark;}body{font-family:system-ui;background:#090d14;color:white;margin:0;padding:22px;}";
+  html += ".card{max-width:480px;margin:60px auto;background:#121a27;border:1px solid #33435c;border-radius:24px;padding:28px;}";
+  html += "h1{font-size:24px;margin:0 0 12px;}p{color:#bec8d8;}";
+  html += "input[type=file]{margin:16px 0;color:white;}";
+  html += "button{display:block;width:100%;border:0;background:#2ee58f;color:#06120b;font-weight:900;font-size:16px;padding:14px;border-radius:14px;cursor:pointer;margin-top:12px;}";
+  html += "</style></head><body><div class='card'>";
+  html += "<h1>Firmware Update</h1>";
+  html += "<p>Upload a .bin file to update over Wi-Fi.</p>";
+  html += "<form method='POST' action='/update?key=" + activeAdminKey + "' enctype='multipart/form-data'>";
+  html += "<input type='file' name='firmware' accept='.bin'>";
+  html += "<button type='submit'>Upload &amp; Flash</button>";
+  html += "</form></div></body></html>";
+  server.send(200, "text/html", html);
+}
+
+void handleOtaUpload() {
+  if (!adminAllowed()) return;
+  HTTPUpload& upload = server.upload();
+  if (upload.status == UPLOAD_FILE_START) {
+    if (!Update.begin(UPDATE_SIZE_UNKNOWN)) Serial.println("[OTA] Begin failed");
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    Update.write(upload.buf, upload.currentSize);
+  } else if (upload.status == UPLOAD_FILE_END) {
+    Update.end(true);
+  }
+}
+
+void handleOtaResult() {
+  if (!adminAllowed()) { server.send(403, "text/plain", "Forbidden"); return; }
+  String html = "<!doctype html><html><head><meta charset='utf-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<style>:root{color-scheme:dark;}body{font-family:system-ui;background:#090d14;color:white;margin:0;padding:22px;}";
+  html += ".card{max-width:480px;margin:60px auto;background:#121a27;border:1px solid #33435c;border-radius:24px;padding:28px;}";
+  html += "h1{font-size:24px;margin:0 0 12px;}p{color:#bec8d8;}</style></head><body><div class='card'>";
+  if (Update.hasError()) {
+    html += "<h1>Update Failed</h1><p>Badge continues with current firmware.</p>";
+  } else {
+    html += "<h1>Update Successful</h1><p>Rebooting in 3 seconds...</p>";
+  }
+  html += "</div></body></html>";
+  server.send(200, "text/html", html);
+  if (!Update.hasError()) { delay(3000); ESP.restart(); }
+}
+
+// --- Settings page ---
+void handleSettingsPage() {
+  if (!adminAllowed()) { server.sendHeader("Location", "/admin?next=/settings"); server.send(303); return; }
+  bool keyIsDefault = (activeAdminKey == macDerivedAdminKey());
+  String html = "<!doctype html><html><head><meta charset='utf-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<title>Settings</title>";
+  html += "<style>:root{color-scheme:dark;}body{font-family:system-ui;background:#090d14;color:white;margin:0;padding:22px;}";
+  html += ".card{max-width:520px;margin:40px auto;background:#121a27;border:1px solid #33435c;border-radius:24px;padding:28px;}";
+  html += "h1{font-size:24px;margin:0 0 12px;}p{color:#bec8d8;}";
+  html += "label{display:block;font-weight:800;margin:14px 0 6px;color:#d9e6ff;}";
+  html += "input{width:100%;box-sizing:border-box;border:1px solid #3a4e6c;background:#172235;color:white;border-radius:12px;padding:12px;font:inherit;}";
+  html += "button{display:block;width:100%;border:0;background:#2ee58f;color:#06120b;font-weight:900;font-size:16px;padding:14px;border-radius:14px;cursor:pointer;margin-top:18px;}";
+  html += ".warn{background:#70404a;border:1px solid #a05060;border-radius:12px;padding:14px;margin:14px 0;color:#ffcccc;}";
+  html += "</style></head><body><div class='card'>";
+  html += "<h1>Badge Settings</h1>";
+  if (keyIsDefault) html += "<div class='warn'><b>Set a custom admin key before saving.</b></div>";
+  html += "<form method='POST' action='/settings?key=" + activeAdminKey + "'>";
+  if (keyIsDefault) html += "<label>New Admin Key</label><input name='newkey' maxlength='32' required placeholder='Choose a key'>";
+  html += "<label>Display Name</label><input name='owner' maxlength='32' value='" + escapeHtml(cfgOwner) + "'>";
+  html += "<label>Title</label><input name='title' maxlength='64' value='" + escapeHtml(cfgTitle) + "'>";
+  html += "<label>LinkedIn URL</label><input name='linkedin' maxlength='120' value='" + escapeHtml(cfgLinkedIn) + "'>";
+  html += "<label>GitHub URL</label><input name='github' maxlength='120' value='" + escapeHtml(cfgGitHub) + "'>";
+  html += "<button type='submit'>Save</button></form>";
+  html += "</div></body></html>";
+  server.send(200, "text/html", html);
+}
+
+void handleSettingsSave() {
+  if (!adminAllowed()) { server.send(403, "text/plain", "Forbidden"); return; }
+  if (server.hasArg("newkey")) {
+    String nk = cleanInput(server.arg("newkey"), 32);
+    if (nk.length() > 0) { prefs.putString("adminKey", nk); activeAdminKey = nk; }
+  }
+  cfgOwner = cleanInput(server.arg("owner"), 32);
+  cfgTitle = cleanInput(server.arg("title"), 64);
+  cfgLinkedIn = cleanInput(server.arg("linkedin"), 120);
+  cfgGitHub = cleanInput(server.arg("github"), 120);
+  prefs.putString("cfgOwner", cfgOwner);
+  prefs.putString("cfgTitle", cfgTitle);
+  prefs.putString("cfgLinkedin", cfgLinkedIn);
+  prefs.putString("cfgGithub", cfgGitHub);
+  saveSettings();
+  server.sendHeader("Location", "/settings?key=" + activeAdminKey);
+  server.send(303);
+}
+
 // =============================================================================
 // Section 8: Setup and Loop
 // =============================================================================
@@ -658,6 +854,15 @@ void setup() {
   server.on("/trigger", handleTrigger);
   server.on("/contact", HTTP_GET, handleContactForm);
   server.on("/contact", HTTP_POST, handleContactSubmit);
+  server.on("/admin", handleAdminLogin);
+  server.on("/contacts", handleContactsAdmin);
+  server.on("/contacts.csv", handleContactsCsv);
+  server.on("/clearcontacts", handleClearContacts);
+  server.on("/resetcount", handleResetCount);
+  server.on("/update", HTTP_GET, handleOtaPage);
+  server.on("/update", HTTP_POST, handleOtaResult, handleOtaUpload);
+  server.on("/settings", HTTP_GET, handleSettingsPage);
+  server.on("/settings", HTTP_POST, handleSettingsSave);
 
   // Captive portal probes
   server.on("/generate_204", handleCaptivePortalProbe);
