@@ -119,7 +119,7 @@ struct ActivityEntry {
 #define LCD_SCK   7
 
 Arduino_DataBus *bus = new Arduino_ESP32SPI(LCD_DC, LCD_CS, LCD_SCK, LCD_MOSI, -1 /* MISO */);
-Arduino_GFX *gfx = new Arduino_ST7789(bus, LCD_RST, 0 /* rotation */, true /* IPS */, 172, 320);
+Arduino_GFX *gfx = new Arduino_ST7789(bus, LCD_RST, 0 /* rotation */, true /* IPS */, 172, 320, 34 /* col_start */, 0 /* row_start */);
 WebServer server(80);
 DNSServer dnsServer;
 Preferences prefs;
