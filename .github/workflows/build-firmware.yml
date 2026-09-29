@@ -47,10 +47,11 @@ jobs:
             firmware
 
       - name: Compile firmware (ESP32-S3 sensing, no LED)
+      - name: Compile firmware (ESP32-S3 sensing, onboard RGB)
         run: |
           arduino-cli compile \
             --fqbn esp32:esp32:esp32s3:PartitionScheme=min_spiffs,CDCOnBoot=cdc \
-            --build-property "compiler.cpp.extra_flags=-DHAS_LED=0 -DDENSITY_METER=1" \
+            --build-property "compiler.cpp.extra_flags=-DHAS_LED=1 -DDENSITY_METER=1" \
             --output-dir ./build/esp32s3-sensing \
             firmware
 
