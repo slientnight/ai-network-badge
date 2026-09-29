@@ -1,12 +1,34 @@
 // =============================================================================
 // Section 1: Includes
 // =============================================================================
+// ---- Board / hardware build switches (must precede the includes) -----------
+// This one sketch builds for BOTH the original ESP32-C3 badge (with LEDs) and
+// the ESP32-S3 "sensing" badge (no LEDs, adds a BLE room-density meter).
+//   HAS_LED        1 = drive the NeoPixel strip (C3 badge). 0 = no LEDs (S3).
+//   DENSITY_METER  1 = show a live BLE room-density readout on the web page.
+//
+// These default here for a plain Arduino IDE build, but the CI passes them as
+// compiler flags per target (e.g. --build-property "compiler.cpp.extra_flags=
+// -DHAS_LED=0 -DDENSITY_METER=1"). A build flag overrides the default below.
+//
+// Arduino IDE users: set the target by editing the two defaults here.
+//   S3 no-LED sensing badge -> HAS_LED 0, DENSITY_METER 1.
+//   Original C3 LED badge   -> HAS_LED 1 (DENSITY_METER optional).
+#ifndef HAS_LED
+#define HAS_LED        0
+#endif
+#ifndef DENSITY_METER
+#define DENSITY_METER  1
+#endif
+
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <ESPmDNS.h>
 #include <Preferences.h>
+#if HAS_LED
 #include <Adafruit_NeoPixel.h>
+#endif
 #include <NimBLEDevice.h>
 #include <esp_mac.h>
 #include <math.h>
@@ -55,6 +77,10 @@ const char* AP_SSID_OVERRIDE = "";
 // Debug flags — set to 1 to enable, 0 to disable (compiled out entirely).
 #define DEBUG_BLE_RSSI 0  // Print peer RSSI to serial on every BLE sighting.
 
+// (Board / hardware build switches HAS_LED and DENSITY_METER are defined at the
+// very top of the file, above the includes, because the preprocessor needs them
+// before the #if HAS_LED include guard.)
+
 // =============================================================================
 // END CONFIG
 // =============================================================================
@@ -62,9 +88,19 @@ const char* AP_SSID_OVERRIDE = "";
 // =============================================================================
 // Section 3: Hardware and limits
 // =============================================================================
+#if HAS_LED
 #define LED_PIN 4
-#define BOOT_BUTTON 9
 #define NUM_LEDS 4   // Badge LED count.
+#endif
+
+// BOOT button GPIO differs by board: the ESP32-C3 boards use GPIO 9, the
+// ESP32-S3 boards use GPIO 0. Pick automatically from the build target so the
+// deep-sleep wake source and the factory-reset hold both land on the real pin.
+#if CONFIG_IDF_TARGET_ESP32S3
+#define BOOT_BUTTON 0
+#else
+#define BOOT_BUTTON 9
+#endif
 
 const char* AP_PASS = "";  // Open Wi-Fi network, no password.
 
@@ -88,6 +124,19 @@ const unsigned long SCORE_FETCH_INTERVAL_MS = 45000;
 const uint32_t BLE_SCAN_SECONDS = 3;
 const uint8_t MAX_SEEN_PEERS = 12;
 const unsigned long REACTION_MS = 4500;
+
+#if DENSITY_METER
+// Room-density meter: count DISTINCT nearby BLE advertisers (any device, not
+// just AI badges) seen within a rolling window as a proxy for how busy this
+// spot is. Deduped by advertiser address. Phones randomize their BLE address
+// for privacy, so this counts anonymous nearby signals, never identities.
+const uint8_t MAX_DENSITY_DEVICES = 60;        // Ring-buffer cap on tracked addrs.
+const unsigned long DENSITY_WINDOW_MS = 45000; // "Seen recently" window (~2 scans).
+// Busy-label thresholds on the recent distinct-device count.
+const uint8_t DENSITY_WARMING = 3;
+const uint8_t DENSITY_BUSY = 8;
+const uint8_t DENSITY_PACKED = 16;
+#endif
 
 const uint8_t ACTIVITY_BUFFER_SIZE = 8;
 const uint16_t SERIAL_LINE_MAX = 96;
@@ -124,7 +173,9 @@ struct ActivityEntry {
   ActivityCategory category;
 };
 
+#if HAS_LED
 Adafruit_NeoPixel pixels(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
+#endif
 WebServer server(80);
 DNSServer dnsServer;
 Preferences prefs;
@@ -289,6 +340,7 @@ String keyFor(const char* prefix, uint8_t index) {
   return String(key);
 }
 
+#if HAS_LED
 uint32_t wheel(byte pos) {
   pos = 255 - pos;
 
@@ -310,6 +362,7 @@ void clearPixels() {
     pixels.setPixelColor(i, 0);
   }
 }
+#endif  // HAS_LED
 
 String cleanInput(String value, uint16_t maxLen) {
   value.trim();
@@ -493,6 +546,68 @@ bool peerAlreadySeen(String peerName) {
   return false;
 }
 
+#if DENSITY_METER
+// ---- BLE room-density meter ------------------------------------------------
+// A tiny ring buffer of the most-recently-seen distinct BLE advertiser
+// addresses. Every advertisement (named or not) refreshes its slot's
+// timestamp; a fresh address takes a new slot (overwriting the oldest when
+// full). densityCount() then counts how many slots were seen inside the
+// rolling window. This is an anonymous nearby-signal count, not people or
+// identities: phones randomize their BLE address, so the same handset can
+// occasionally show up as more than one transient slot. It is a "how busy is
+// this spot" proxy, deliberately coarse.
+struct DensitySlot {
+  String addr;
+  unsigned long lastSeenMs;
+};
+DensitySlot densitySlots[MAX_DENSITY_DEVICES];
+uint8_t densitySlotCount = 0;
+uint8_t densityNextEvict = 0;   // Round-robin eviction cursor when full.
+uint16_t densityPeak = 0;       // High-water mark of the recent count.
+
+void recordDensitySighting(const String& addr) {
+  if (addr.length() == 0) return;
+  unsigned long now = millis();
+
+  // Known address -> refresh timestamp.
+  for (uint8_t i = 0; i < densitySlotCount; i++) {
+    if (densitySlots[i].addr == addr) {
+      densitySlots[i].lastSeenMs = now;
+      return;
+    }
+  }
+
+  // New address -> take a slot (grow, else evict the oldest via round-robin).
+  uint8_t idx;
+  if (densitySlotCount < MAX_DENSITY_DEVICES) {
+    idx = densitySlotCount++;
+  } else {
+    idx = densityNextEvict;
+    densityNextEvict = (densityNextEvict + 1) % MAX_DENSITY_DEVICES;
+  }
+  densitySlots[idx].addr = addr;
+  densitySlots[idx].lastSeenMs = now;
+}
+
+// Distinct advertisers seen within the rolling window.
+uint16_t densityCount() {
+  unsigned long now = millis();
+  uint16_t n = 0;
+  for (uint8_t i = 0; i < densitySlotCount; i++) {
+    if (now - densitySlots[i].lastSeenMs <= DENSITY_WINDOW_MS) n++;
+  }
+  if (n > densityPeak) densityPeak = n;
+  return n;
+}
+
+String densityLabel(uint16_t n) {
+  if (n >= DENSITY_PACKED) return "Packed";
+  if (n >= DENSITY_BUSY) return "Busy";
+  if (n >= DENSITY_WARMING) return "Warming up";
+  return "Quiet";
+}
+#endif  // DENSITY_METER
+
 void rememberPeer(String peerName, int8_t rssi) {
   if (peerName.length() == 0) return;
   if (peerName == activeBleName) return;
@@ -547,6 +662,13 @@ void rememberPeer(String peerName, int8_t rssi) {
 
 class BadgeAdvertisedDeviceCallbacks : public NimBLEScanCallbacks {
   void onResult(const NimBLEAdvertisedDevice* advertisedDevice) override {
+#if DENSITY_METER
+    // Count EVERY nearby advertiser (named or not) for the room-density meter,
+    // keyed by advertiser address. Most phones advertise without a name, so
+    // this must run before the haveName() early-return below.
+    recordDensitySighting(String(advertisedDevice->getAddress().toString().c_str()));
+#endif
+
     if (!advertisedDevice->haveName()) {
       return;
     }
@@ -721,6 +843,7 @@ void runLeaderboardSync() {
 // =============================================================================
 // Section 6: Idle patterns
 // =============================================================================
+#if HAS_LED
 
 void idlePacketChase() {
   clearPixels();
@@ -947,6 +1070,7 @@ void renderReaction() {
       break;
   }
 }
+#endif  // HAS_LED — Sections 6 & 7 (idle patterns + reaction rendering)
 
 void triggerReaction(Reaction r, String signalName, uint8_t packetValue) {
   activeReaction = r;
@@ -1016,6 +1140,10 @@ String htmlPage() {
   html += "td,th{border-bottom:1px solid #33435c;padding:8px;text-align:left;}";
   html += "th{color:#7dffca;}";
   html += ".small{font-size:13px;color:#91a0b7;}";
+#if DENSITY_METER
+  html += ".dbar{height:16px;background:#0d1420;border:1px solid #3a4e6c;border-radius:999px;overflow:hidden;margin:10px 0;}";
+  html += ".dfill{height:100%;background:linear-gradient(90deg,#2ee58f,#2f80ed);transition:width .6s ease;}";
+#endif
   html += "</style></head><body>";
 
   html += "<div class='card'>";
@@ -1034,6 +1162,20 @@ String htmlPage() {
   html += "<span class='pill'>Next unlock: " + nextUnlockText() + "</span>";
   html += "<span class='pill'>Last signal: " + escapeHtml(lastSignal) + "</span>";
   html += "</div>";
+
+#if DENSITY_METER
+  {
+    uint16_t dn = densityCount();
+    html += "<div class='game'>";
+    html += "<h2>MESH ACTIVITY</h2>";
+    html += "<p class='small'>This badge passively senses how busy this spot is by counting nearby wireless signals. It counts anonymous signals in the air, not people or identities.</p>";
+    html += "<div class='level'><span id='dlabel'>" + densityLabel(dn) + "</span></div>";
+    html += "<div class='dbar'><div id='dfill' class='dfill' style='width:" + String(dn >= DENSITY_PACKED ? 100 : (int)(dn * 100 / DENSITY_PACKED)) + "%'></div></div>";
+    html += "<span class='pill'>Signals nearby: <b id='dcount'>" + String(dn) + "</b></span>";
+    html += "<span class='pill'>Busiest seen: <b id='dpeak'>" + String(densityPeak) + "</b></span>";
+    html += "</div>";
+  }
+#endif
 
   if (cfgLinkedIn.length() > 0 || cfgGitHub.length() > 0) {
     html += "<h2>Connect</h2>";
@@ -1188,6 +1330,20 @@ String htmlPage() {
   html += "This page should open automatically after joining Wi-Fi.<br>";
   html += "If not, open: <b>http://192.168.4.1</b> or <b>http://" + String(MDNS_HOSTNAME) + ".local</b></p>";
 
+#if DENSITY_METER
+  // Live-update the Mesh Activity panel without reloading the whole page.
+  html += "<script>";
+  html += "function upd(){fetch('/density.json').then(r=>r.json()).then(d=>{";
+  html += "document.getElementById('dcount').textContent=d.n;";
+  html += "document.getElementById('dpeak').textContent=d.peak;";
+  html += "document.getElementById('dlabel').textContent=d.label;";
+  html += "var pct=d.n>=d.max?100:Math.round(d.n*100/d.max);";
+  html += "document.getElementById('dfill').style.width=pct+'%';";
+  html += "}).catch(e=>{});}";
+  html += "setInterval(upd,4000);upd();";
+  html += "</script>";
+#endif
+
   html += "</div></body></html>";
 
   return html;
@@ -1319,6 +1475,23 @@ String captivePortalLandingPage() {
 void handleRoot() {
   server.send(200, "text/html", htmlPage());
 }
+
+#if DENSITY_METER
+// Lightweight JSON feed for the live Mesh Activity panel. Returns the current
+// distinct-signal count, the session peak, the busy label, and the bar's
+// full-scale value so the page can render without reloading.
+void handleDensityJson() {
+  uint16_t dn = densityCount();
+  String json = "{";
+  json += "\"n\":" + String(dn) + ",";
+  json += "\"peak\":" + String(densityPeak) + ",";
+  json += "\"max\":" + String(DENSITY_PACKED) + ",";
+  json += "\"label\":\"" + densityLabel(dn) + "\"";
+  json += "}";
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", json);
+}
+#endif
 
 void handleCaptivePortalProbe() {
   // Captive-network probes from iOS, Android, and Windows expect either an
@@ -1808,6 +1981,7 @@ void enterDeepSleep() {
   Serial.println("Entering deep sleep...");
   delay(100);
 
+#if HAS_LED
   // Fade LEDs out.
   for (int b = brightness; b >= 0; b -= 4) {
     pixels.setBrightness(b > 0 ? b : 0);
@@ -1816,9 +1990,18 @@ void enterDeepSleep() {
   }
   pixels.clear();
   pixels.show();
+#endif
 
-  // Configure GPIO 9 (BOOT button) as wake source — wake on LOW (button pressed).
+  // Configure the BOOT button GPIO as wake source — wake on LOW (button pressed).
+  // The two chips expose different deep-sleep wake APIs:
+  //   - ESP32-C3 (RISC-V): esp_deep_sleep_enable_gpio_wakeup() + ESP_GPIO_WAKEUP_GPIO_LOW.
+  //   - ESP32-S3 (Xtensa): that API isn't available; use ext1 wakeup in ANY_LOW
+  //     mode on the RTC-capable BOOT pin (GPIO 0).
+#if CONFIG_IDF_TARGET_ESP32S3
+  esp_sleep_enable_ext1_wakeup_io(1ULL << BOOT_BUTTON, ESP_EXT1_WAKEUP_ANY_LOW);
+#else
   esp_deep_sleep_enable_gpio_wakeup(1ULL << BOOT_BUTTON, ESP_GPIO_WAKEUP_GPIO_LOW);
+#endif
   esp_deep_sleep_start();
 }
 
@@ -1876,11 +2059,13 @@ void setup() {
 
   // Hold-BOOT-on-power-up factory reset.
   // If the BOOT button is held LOW continuously for 5 seconds after power-on,
-  // wipe the NVS namespace 'badge' and reboot. The LED strip pulses red as a
-  // warning so accidental presses are obvious and easy to abort by releasing.
+  // wipe the NVS namespace 'badge' and reboot. On LED badges the strip pulses
+  // red as a warning; on the no-LED S3 the hold still works, just silently.
   if (digitalRead(BOOT_BUTTON) == LOW) {
+#if HAS_LED
     pixels.begin();
     pixels.setBrightness(64);
+#endif
     Serial.println("BOOT held on power-up. Hold for 5 seconds to factory reset.");
 
     const unsigned long resetHoldMs = 5000;
@@ -1892,6 +2077,7 @@ void setup() {
         aborted = true;
         break;
       }
+#if HAS_LED
       // Red pulse, intensity ramps with hold progress.
       unsigned long held = millis() - start;
       uint8_t level = (uint8_t)(20 + (held * 235UL) / resetHoldMs);
@@ -1899,11 +2085,14 @@ void setup() {
         pixels.setPixelColor(i, pixels.Color(level, 0, 0));
       }
       pixels.show();
+#endif
       delay(40);
     }
 
+#if HAS_LED
     pixels.clear();
     pixels.show();
+#endif
 
     if (!aborted) {
       factoryResetAndReboot();
@@ -1923,10 +2112,12 @@ void setup() {
   temperature_sensor_install(&tempCfg, &tempSensor);
   temperature_sensor_enable(tempSensor);
 
+#if HAS_LED
   pixels.begin();
   pixels.setBrightness(brightness);
   pixels.clear();
   pixels.show();
+#endif
 
   randomSeed(esp_random());
 
@@ -1944,6 +2135,9 @@ void setup() {
   }
 
   server.on("/", handleRoot);
+#if DENSITY_METER
+  server.on("/density.json", handleDensityJson);
+#endif
   server.on("/trigger", handleTrigger);
   server.on("/contact", HTTP_POST, handleContactSubmit);
   server.on("/contacts", handleContactsAdmin);
@@ -2016,6 +2210,7 @@ void loop() {
   runLeaderboardSync();
   checkButton();
 
+#if HAS_LED
   if (millis() - lastFrame > 55) {
     lastFrame = millis();
 
@@ -2030,4 +2225,16 @@ void loop() {
     pixels.show();
     frame++;
   }
+#else
+  // No LEDs on this board — still expire the reaction state so the web page's
+  // "last signal" clears on schedule, and advance the animation frame counter
+  // used by relative-time helpers.
+  if (millis() - lastFrame > 55) {
+    lastFrame = millis();
+    if (activeReaction != REACTION_NONE && millis() - reactionStart > REACTION_MS) {
+      activeReaction = REACTION_NONE;
+    }
+    frame++;
+  }
+#endif
 }

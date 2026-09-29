@@ -4,7 +4,9 @@
   <img src="badge_photo.jpeg" alt="AI Network Badge: round acrylic disc with holographic I NETWORK WITH AI text and blue LEDs, clipped to a lanyard" width="360">
 </p>
 
-A self-contained ESP32-C3 conference badge. It hosts an open Wi-Fi captive portal so anyone who joins gets the badge web page automatically, drives a 4-pixel NeoPixel strip with four idle animations and seven scripted reaction effects, runs the "Build the Mesh" packet game with persistent score and level-ups, accepts contact card submissions through a web form and stores them in NVS, and quietly scans for nearby badges over BLE so two attendees with badges greet each other with a link-up animation.
+A self-contained ESP32 conference badge. It hosts an open Wi-Fi captive portal so anyone who joins gets the badge web page automatically, drives a 4-pixel NeoPixel strip with four idle animations and seven scripted reaction effects, runs the "Build the Mesh" packet game with persistent score and level-ups, accepts contact card submissions through a web form and stores them in NVS, and quietly scans for nearby badges over BLE so two attendees with badges greet each other with a link-up animation.
+
+It builds in two variants from one firmware file: the original **ESP32-C3 LED badge**, and an **ESP32-S3 "sensing" badge** that drops the LEDs and adds a live BLE **room-density meter** on its web page (see [Supported Boards](#supported-boards)).
 
 ## Features
 
@@ -34,10 +36,29 @@ A self-contained ESP32-C3 conference badge. It hosts an open Wi-Fi captive porta
 
 ## Supported Boards
 
+### LED badge (original)
 - Seeed XIAO ESP32-C3
 - ESP32-C3 SuperMini
 
-Both boards are pin-compatible for this firmware: GPIO 4 drives the LED data line and GPIO 9 is the onboard BOOT button.
+Both C3 boards are pin-compatible for this firmware: GPIO 4 drives the LED data line and GPIO 9 is the onboard BOOT button.
+
+### Sensing badge (no LED, adds BLE room-density meter)
+- ESP32-S3 Dev Module
+
+The **same firmware file** builds both variants. Two switches near the top of
+`firmware/firmware.ino` select the target (they can also be set as CI/compiler
+build flags, which is how the automated builds do it):
+
+| Switch          | LED badge (C3) | Sensing badge (S3) |
+|-----------------|----------------|--------------------|
+| `HAS_LED`       | `1`            | `0`                |
+| `DENSITY_METER` | `0` or `1`     | `1`                |
+
+On the S3 the NeoPixel code is compiled out entirely, the BOOT button is GPIO 0
+(auto-selected from the build target), and the web page gains a live **Mesh
+Activity** panel: the BLE scanner counts distinct nearby wireless signals in a
+rolling window as a "how busy is this spot" readout. It counts anonymous nearby
+signals, not people or identities (phones randomize their BLE address).
 
 ## Prerequisites
 
@@ -112,21 +133,43 @@ The override is stored in NVS and survives reboots.
 
 ### Arduino IDE 2.x
 
+**LED badge (ESP32-C3):**
 1. Open `firmware/firmware.ino`.
-2. Tools → Board → select your target (`XIAO_ESP32C3` or `ESP32C3 Dev Module`).
-3. Tools → Partition Scheme → **Minimal SPIFFS (1.9MB APP with OTA/128KB SPIFFS)**.
-4. **ESP32C3 Dev Module only**: Tools → USB CDC On Boot → **Enabled**. (The XIAO board profile handles this automatically.)
-5. Tools → Port → select the COM port.
-6. Click Upload.
+2. Set the switches near the top of the file to `HAS_LED 1`.
+3. Tools → Board → select your target (`XIAO_ESP32C3` or `ESP32C3 Dev Module`).
+4. Tools → Partition Scheme → **Minimal SPIFFS (1.9MB APP with OTA/128KB SPIFFS)**.
+5. **ESP32C3 Dev Module only**: Tools → USB CDC On Boot → **Enabled**. (The XIAO board profile handles this automatically.)
+6. Tools → Port → select the COM port.
+7. Click Upload.
+
+**Sensing badge (ESP32-S3, no LED):**
+1. Open `firmware/firmware.ino`.
+2. Set the switches near the top of the file to `HAS_LED 0` and `DENSITY_METER 1`.
+3. Tools → Board → **ESP32S3 Dev Module**.
+4. Tools → Partition Scheme → **Minimal SPIFFS (1.9MB APP with OTA/128KB SPIFFS)**.
+5. Tools → USB CDC On Boot → **Enabled**.
+6. Tools → Port → select the port.
+7. Click Upload.
 
 ### Arduino CLI
 
+**LED badge (ESP32-C3):**
 ```
 arduino-cli core install esp32:esp32
 arduino-cli lib install "Adafruit NeoPixel"
 arduino-cli lib install "NimBLE-Arduino"
-arduino-cli compile --fqbn esp32:esp32:esp32c3:PartitionScheme=min_spiffs,CDCOnBoot=cdc firmware
+arduino-cli compile --fqbn esp32:esp32:esp32c3:PartitionScheme=min_spiffs,CDCOnBoot=cdc \
+  --build-property "compiler.cpp.extra_flags=-DHAS_LED=1 -DDENSITY_METER=1" firmware
 arduino-cli upload --fqbn esp32:esp32:esp32c3 -p COM3 firmware
+```
+
+**Sensing badge (ESP32-S3, no LED):**
+```
+arduino-cli core install esp32:esp32
+arduino-cli lib install "NimBLE-Arduino"
+arduino-cli compile --fqbn esp32:esp32:esp32s3:PartitionScheme=min_spiffs,CDCOnBoot=cdc \
+  --build-property "compiler.cpp.extra_flags=-DHAS_LED=0 -DDENSITY_METER=1" firmware
+arduino-cli upload --fqbn esp32:esp32:esp32s3:PartitionScheme=min_spiffs,CDCOnBoot=cdc -p COM3 firmware
 ```
 
 Replace `COM3` with the actual port on your system.
@@ -181,7 +224,7 @@ If your badge is using a different partition scheme, one USB flash is needed to 
 
 ### Automated Builds
 
-Every push to main is compiled by GitHub Actions for both supported boards. Tagged releases publish downloadable `.bin` files automatically.
+Every push to main is compiled by GitHub Actions for all three targets (ESP32-C3 Dev Module, Seeed XIAO ESP32-C3, and the ESP32-S3 sensing badge). Tagged releases publish downloadable `.bin` files for each automatically.
 
 ## HTTP Endpoints
 
