@@ -1993,10 +1993,15 @@ void enterDeepSleep() {
 #endif
 
   // Configure the BOOT button GPIO as wake source — wake on LOW (button pressed).
-  // ESP32 Arduino core 3.x removed esp_deep_sleep_enable_gpio_wakeup(); the
-  // portable replacement across the C3 (GPIO 9) and S3 (GPIO 0) — both
-  // RTC-capable pins — is ext1 wakeup in ANY_LOW mode.
+  // The two chips expose different deep-sleep wake APIs:
+  //   - ESP32-C3 (RISC-V): esp_deep_sleep_enable_gpio_wakeup() + ESP_GPIO_WAKEUP_GPIO_LOW.
+  //   - ESP32-S3 (Xtensa): that API isn't available; use ext1 wakeup in ANY_LOW
+  //     mode on the RTC-capable BOOT pin (GPIO 0).
+#if CONFIG_IDF_TARGET_ESP32S3
   esp_sleep_enable_ext1_wakeup_io(1ULL << BOOT_BUTTON, ESP_EXT1_WAKEUP_ANY_LOW);
+#else
+  esp_deep_sleep_enable_gpio_wakeup(1ULL << BOOT_BUTTON, ESP_GPIO_WAKEUP_GPIO_LOW);
+#endif
   esp_deep_sleep_start();
 }
 
