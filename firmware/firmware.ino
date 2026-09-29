@@ -2,20 +2,22 @@
 // Section 1: Includes
 // =============================================================================
 // ---- Board / hardware build switches (must precede the includes) -----------
-// This one sketch builds for BOTH the original ESP32-C3 badge (with LEDs) and
-// the ESP32-S3 "sensing" badge (no LEDs, adds a BLE room-density meter).
-//   HAS_LED        1 = drive the NeoPixel strip (C3 badge). 0 = no LEDs (S3).
-//   DENSITY_METER  1 = show a live BLE room-density readout on the web page.
+// This one sketch builds for BOTH the original ESP32-C3 badge and the
+// ESP32-S3 (Lonely Binary) badge. Both boards have an addressable RGB LED:
+// the C3 drives a 4-pixel strip on GPIO 4, the S3 drives its single onboard
+// RGB on GPIO 48 (see Section 3).
+//   HAS_LED        1 = drive the addressable RGB LED. 0 = no LED (feedback on
+//                      the web page only).
+//   DENSITY_METER  1 = show a live BLE room-density readout on the web page
+//                      (and, when HAS_LED=1, drive the LED color by density).
 //
-// These default here for a plain Arduino IDE build, but the CI passes them as
-// compiler flags per target (e.g. --build-property "compiler.cpp.extra_flags=
-// -DHAS_LED=0 -DDENSITY_METER=1"). A build flag overrides the default below.
+// These default here for a plain Arduino IDE build; CI passes them as compiler
+// flags per target (--build-property "compiler.cpp.extra_flags=-DHAS_LED=1
+// -DDENSITY_METER=1"). A build flag overrides the default below.
 //
-// Arduino IDE users: set the target by editing the two defaults here.
-//   S3 no-LED sensing badge -> HAS_LED 0, DENSITY_METER 1.
-//   Original C3 LED badge   -> HAS_LED 1 (DENSITY_METER optional).
+// Arduino IDE users: both current badges use HAS_LED 1 + DENSITY_METER 1.
 #ifndef HAS_LED
-#define HAS_LED        0
+#define HAS_LED        1
 #endif
 #ifndef DENSITY_METER
 #define DENSITY_METER  1
@@ -89,8 +91,18 @@ const char* AP_SSID_OVERRIDE = "";
 // Section 3: Hardware and limits
 // =============================================================================
 #if HAS_LED
+// LED wiring differs by board:
+//   - ESP32-C3 badge: a 4-pixel external NeoPixel strip on GPIO 4.
+//   - ESP32-S3 (Lonely Binary): the single onboard addressable RGB (WS2812) on
+//     GPIO 48. One pixel — the idle state shows room-density color and game
+//     reactions flash over it.
+#if CONFIG_IDF_TARGET_ESP32S3
+#define LED_PIN 48
+#define NUM_LEDS 1
+#else
 #define LED_PIN 4
-#define NUM_LEDS 4   // Badge LED count.
+#define NUM_LEDS 4
+#endif
 #endif
 
 // BOOT button GPIO differs by board: the ESP32-C3 boards use GPIO 9, the
@@ -558,6 +570,7 @@ bool peerAlreadySeen(String peerName) {
 // this spot" proxy, deliberately coarse.
 struct DensitySlot {
   String addr;
+  int8_t rssi;            // Last-seen signal strength (dBm), for the "nearest" list.
   unsigned long lastSeenMs;
 };
 DensitySlot densitySlots[MAX_DENSITY_DEVICES];
@@ -565,14 +578,18 @@ uint8_t densitySlotCount = 0;
 uint8_t densityNextEvict = 0;   // Round-robin eviction cursor when full.
 uint16_t densityPeak = 0;       // High-water mark of the recent count.
 
-void recordDensitySighting(const String& addr) {
+// How many of the nearest recent signals to surface on the web page.
+const uint8_t DENSITY_TOP_N = 10;
+
+void recordDensitySighting(const String& addr, int8_t rssi) {
   if (addr.length() == 0) return;
   unsigned long now = millis();
 
-  // Known address -> refresh timestamp.
+  // Known address -> refresh timestamp + rssi.
   for (uint8_t i = 0; i < densitySlotCount; i++) {
     if (densitySlots[i].addr == addr) {
       densitySlots[i].lastSeenMs = now;
+      densitySlots[i].rssi = rssi;
       return;
     }
   }
@@ -586,6 +603,7 @@ void recordDensitySighting(const String& addr) {
     densityNextEvict = (densityNextEvict + 1) % MAX_DENSITY_DEVICES;
   }
   densitySlots[idx].addr = addr;
+  densitySlots[idx].rssi = rssi;
   densitySlots[idx].lastSeenMs = now;
 }
 
@@ -605,6 +623,36 @@ String densityLabel(uint16_t n) {
   if (n >= DENSITY_BUSY) return "Busy";
   if (n >= DENSITY_WARMING) return "Warming up";
   return "Quiet";
+}
+
+// Build a JSON array of the strongest (nearest) recent signals, up to
+// DENSITY_TOP_N. Each entry is {rssi, label} — an anonymized proximity readout
+// (no address is exposed; phones randomize it anyway). Selection sort over the
+// small slot table (<= MAX_DENSITY_DEVICES), picking recent slots by best RSSI.
+String densityNearestJson() {
+  unsigned long now = millis();
+  // Snapshot indices of slots seen within the window.
+  uint8_t idxs[MAX_DENSITY_DEVICES];
+  uint8_t m = 0;
+  for (uint8_t i = 0; i < densitySlotCount; i++) {
+    if (now - densitySlots[i].lastSeenMs <= DENSITY_WINDOW_MS) idxs[m++] = i;
+  }
+  String json = "[";
+  uint8_t emitted = 0;
+  // Selection: repeatedly pull the strongest remaining, up to TOP_N.
+  for (uint8_t k = 0; k < m && emitted < DENSITY_TOP_N; k++) {
+    uint8_t best = k;
+    for (uint8_t j = k + 1; j < m; j++) {
+      if (densitySlots[idxs[j]].rssi > densitySlots[idxs[best]].rssi) best = j;
+    }
+    uint8_t t = idxs[k]; idxs[k] = idxs[best]; idxs[best] = t;
+    int8_t rssi = densitySlots[idxs[k]].rssi;
+    if (emitted > 0) json += ",";
+    json += "{\"rssi\":" + String(rssi) + ",\"label\":\"" + rssiLabel(rssi) + "\"}";
+    emitted++;
+  }
+  json += "]";
+  return json;
 }
 #endif  // DENSITY_METER
 
@@ -666,7 +714,8 @@ class BadgeAdvertisedDeviceCallbacks : public NimBLEScanCallbacks {
     // Count EVERY nearby advertiser (named or not) for the room-density meter,
     // keyed by advertiser address. Most phones advertise without a name, so
     // this must run before the haveName() early-return below.
-    recordDensitySighting(String(advertisedDevice->getAddress().toString().c_str()));
+    recordDensitySighting(String(advertisedDevice->getAddress().toString().c_str()),
+                          (int8_t)advertisedDevice->getRSSI());
 #endif
 
     if (!advertisedDevice->haveName()) {
@@ -911,7 +960,45 @@ bool peersNearby() {
   return false;
 }
 
+#if DENSITY_METER
+// Idle render driven by BLE room density: the LED color and liveliness scale
+// with how many distinct nearby signals are seen. Quiet = calm blue, then
+// green, amber, and a lively red pulse when packed. Brightness also ramps a
+// little with the count so a busier spot visibly glows more. Reads the same
+// densityCount() the web page uses.
+void idleDensity() {
+  uint16_t n = densityCount();
+
+  // Base color by band.
+  uint8_t r, g, b;
+  if (n >= DENSITY_PACKED)      { r = 255; g = 30;  b = 0;   }   // Packed  -> red
+  else if (n >= DENSITY_BUSY)   { r = 255; g = 140; b = 0;   }   // Busy    -> amber
+  else if (n >= DENSITY_WARMING){ r = 0;   g = 220; b = 60;  }   // Warming -> green
+  else                          { r = 0;   g = 80;  b = 200; }   // Quiet   -> blue
+
+  // Liveliness: gentle breathing when quiet, faster/brighter pulse as it fills.
+  // Scale the pulse speed with the count so a crowd makes the LED more active.
+  float speed = 0.04 + (n * 0.010);            // slow when empty, faster when busy
+  if (speed > 0.20) speed = 0.20;
+  float pulse = (sin(frame * speed) + 1.0) * 0.5;   // 0.0 - 1.0
+  float floorLevel = 0.45 + (n >= DENSITY_PACKED ? 0.10 : 0.0);
+  float level = floorLevel + pulse * (1.0 - floorLevel);
+
+  for (int i = 0; i < NUM_LEDS; i++) {
+    pixels.setPixelColor(i, pixels.Color(
+      (uint8_t)(r * level), (uint8_t)(g * level), (uint8_t)(b * level)));
+  }
+}
+#endif  // DENSITY_METER
+
 void renderIdle() {
+#if DENSITY_METER
+  // On a density badge the idle state IS the room-activity readout, so the LED
+  // is always meaningful (not dark) between reactions. Game reactions still
+  // flash over this via renderReaction().
+  idleDensity();
+  return;
+#else
   switch (idlePattern) {
     case 0:
       idlePacketChase();
@@ -945,6 +1032,7 @@ void renderIdle() {
     uint8_t blendedG = existingG > g ? existingG : g;
     pixels.setPixelColor(0, pixels.Color(r, blendedG, b));
   }
+#endif  // DENSITY_METER (else branch: legacy multi-pattern idle)
 }
 
 // =============================================================================
@@ -1143,6 +1231,12 @@ String htmlPage() {
 #if DENSITY_METER
   html += ".dbar{height:16px;background:#0d1420;border:1px solid #3a4e6c;border-radius:999px;overflow:hidden;margin:10px 0;}";
   html += ".dfill{height:100%;background:linear-gradient(90deg,#2ee58f,#2f80ed);transition:width .6s ease;}";
+  html += ".nearh{font-size:14px;margin:16px 0 6px;color:#d9e6ff;}";
+  html += ".nearlist .row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #22314a;}";
+  html += ".nearlist .bars{flex:1;height:8px;background:#0d1420;border-radius:999px;overflow:hidden;}";
+  html += ".nearlist .barsf{height:100%;background:linear-gradient(90deg,#2ee58f,#2f80ed);}";
+  html += ".nearlist .lab{width:78px;font-weight:800;color:#7dffca;font-size:13px;}";
+  html += ".nearlist .dbm{width:64px;text-align:right;color:#91a0b7;font-size:12px;}";
 #endif
   html += "</style></head><body>";
 
@@ -1173,6 +1267,8 @@ String htmlPage() {
     html += "<div class='dbar'><div id='dfill' class='dfill' style='width:" + String(dn >= DENSITY_PACKED ? 100 : (int)(dn * 100 / DENSITY_PACKED)) + "%'></div></div>";
     html += "<span class='pill'>Signals nearby: <b id='dcount'>" + String(dn) + "</b></span>";
     html += "<span class='pill'>Busiest seen: <b id='dpeak'>" + String(densityPeak) + "</b></span>";
+    html += "<h3 class='nearh'>Nearest signals</h3>";
+    html += "<div id='dnear' class='nearlist'><p class='small'>Scanning...</p></div>";
     html += "</div>";
   }
 #endif
@@ -1339,6 +1435,13 @@ String htmlPage() {
   html += "document.getElementById('dlabel').textContent=d.label;";
   html += "var pct=d.n>=d.max?100:Math.round(d.n*100/d.max);";
   html += "document.getElementById('dfill').style.width=pct+'%';";
+  // Render the nearest signals: map RSSI (~-100..-30 dBm) to a 0-100% bar.
+  html += "var nl=document.getElementById('dnear');";
+  html += "if(nl){var a=d.nearest||[];if(!a.length){nl.innerHTML=\"<p class='small'>No signals in range right now.</p>\";}";
+  html += "else{var h='';for(var i=0;i<a.length;i++){var s=a[i];";
+  html += "var w=Math.max(4,Math.min(100,Math.round((s.rssi+100)*100/70)));";
+  html += "h+=\"<div class='row'><span class='lab'>\"+s.label+\"</span><span class='bars'><span class='barsf' style='width:\"+w+\"%'></span></span><span class='dbm'>\"+s.rssi+\" dBm</span></div>\";}";
+  html += "nl.innerHTML=h;}}";
   html += "}).catch(e=>{});}";
   html += "setInterval(upd,4000);upd();";
   html += "</script>";
@@ -1486,7 +1589,8 @@ void handleDensityJson() {
   json += "\"n\":" + String(dn) + ",";
   json += "\"peak\":" + String(densityPeak) + ",";
   json += "\"max\":" + String(DENSITY_PACKED) + ",";
-  json += "\"label\":\"" + densityLabel(dn) + "\"";
+  json += "\"label\":\"" + densityLabel(dn) + "\",";
+  json += "\"nearest\":" + densityNearestJson();
   json += "}";
   server.sendHeader("Cache-Control", "no-store");
   server.send(200, "application/json", json);
